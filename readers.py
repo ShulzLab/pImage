@@ -9,23 +9,6 @@ try :
 except ImportError as e :
     cv2 = e
 
-try :
-    import hiris
-except ImportError as e :
-    hiris = e
-
-def select_reader(file_path):
-    if os.path.splitext(file_path)[1] == ".seq" :
-        if isinstance(hiris, ImportError) :
-            raise hiris("hiris.py not available in library folder")
-        return hiris.HirisReader
-    elif os.path.splitext(file_path)[1] in (".avi",".mp4") :
-        if isinstance(cv2, ImportError) :
-            raise cv2("OpenCV2 cannot be imported sucessfully of is not installed")
-        return AviReader
-    else :
-        raise NotImplementedError("File extension/CODEC not supported yet")
-
 
 class DefaultReader:
     def __init__(self):
@@ -59,15 +42,15 @@ class DefaultReader:
             prog = True
         else :
             prog = False
-        for _ in range(down,up):
+        for i in range(down,up):
             if prog :
                 bar.update()
-            yield self.frame()
+            yield self.frame(i)
             
     def frame(self,frame_id = None):
         if frame_id is None :
             frame_id = self.cursor
-            self.cursor += 1
+        self.cursor += 1
         return self._get_frame(frame_id)
     
             

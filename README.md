@@ -2,7 +2,7 @@
  
 Usage : 
 
-**For video compression / modification :**
+**Simple guide for video compression :**
 
 ``` python
 import pImage
@@ -10,7 +10,7 @@ import pImage
 input_video_path = r"foo/myfoovideo.seq"
 output_video_path = r"bar/myconvertedfoovideo.avi"
 
-converter = pImage.converters.Standard_Converter(input_video_path, output_video_path, optionnal_key_value_arguments)
+converter = pImage.Standard_Converter(input_video_path, output_video_path)
 converter.start()
 ```
 

@@ -12,8 +12,22 @@ from cv2 import VideoWriter, VideoWriter_fourcc, VideoCapture
 import cv2
 import warnings
 
-from readers import select_reader
 from writers import select_writer
+import hiris
+import readers
+
+def select_reader(file_path):
+    if os.path.splitext(file_path)[1] == ".seq" :
+        if isinstance(hiris, ImportError) :
+            raise hiris("hiris.py not available in library folder")
+        return hiris.HirisReader
+    elif os.path.splitext(file_path)[1] in (".avi",".mp4") :
+        if isinstance(cv2, ImportError) :
+            raise cv2("OpenCV2 cannot be imported sucessfully of is not installed")
+        return readers.AviReader
+    else :
+        raise NotImplementedError("File extension/CODEC not supported yet")
+
 
 class AutoVideoReader:
     def __init__(self,path, **kwargs):
@@ -410,7 +424,7 @@ def AVI_ToArray(path,**kwargs):
 
     del bar
 
-    if rotation is not 0 :
+    if rotation != 0 :
         FrameArray = np.rot90(FrameArray, rotation, axes=(0, 1))
 
     return FrameArray
