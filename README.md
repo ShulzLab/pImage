@@ -13,7 +13,7 @@ output_video_path = r"bar/myconvertedfoovideo.avi"
 converter = pImage.Standard_Converter(input_video_path, output_video_path)
 converter.start()
 ```
-
+Implement progressbar for files of over 100 frames.
 Once finished, the script will display `Done` in console
 
 **Under the hood :**
