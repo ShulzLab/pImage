@@ -442,7 +442,7 @@ def GetImage(path,**kwargs):
             _ , TempIMG = Handlevid.read()
             Output[:,:,idx] = TempIMG[:,:,0]
 
-    if rotation is not 0 :
+    if rotation != 0 :
         Output = np.rot90(Output,rotation,axes = (0,1))
 
     return Output
