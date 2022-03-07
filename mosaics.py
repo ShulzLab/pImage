@@ -109,9 +109,9 @@ class array_video_color(memarray):
         
         if array_type is None :
             if len(input_array.shape) == 3:
-                obj = np.repeat( input_array[:,:,np.newaxis,:], 3 ,axis = 2)
+                obj = np.repeat( input_array[:,:,:,np.newaxis].astype(np.uint8), 3 ,axis = 3)
             elif len(input_array.shape) == 4 and input_array.shape[2] ==  3 :
-                obj = input_array
+                obj = input_array.astype(np.uint8)
             else :
                 raise ValueError("Array shape not understood. Make sure it matches requirements stated in documentation")
         
@@ -119,9 +119,9 @@ class array_video_color(memarray):
             if len(input_array.shape) == 2 :
                 if max_time is None :
                     raise ValueError("max_time cannot be None if self is not a 3D array")
-                obj = np.repeat(np.repeat( input_array[:,:,np.newaxis], 3 ,axis = 2)[:,:,:,np.newaxis],max_time,axis = 3)
+                obj = np.repeat(np.repeat( input_array[:,:,np.newaxis].astype(np.uint8), 3 ,axis = 2)[np.newaxis,:,:,:],max_time,axis = 0)
             elif len(input_array.shape) == 3 :
-                obj = np.repeat( input_array[:,:,np.newaxis,:], 3 ,axis = 2)
+                obj = np.repeat( input_array[:,:,:,np.newaxis], 3 ,axis = 3, dtype = np.uint8)
             else :
                 raise ValueError("Array shape not understood. Make sure it matches requirements stated in documentation")
         
@@ -129,9 +129,9 @@ class array_video_color(memarray):
             if len(input_array.shape) == 3 :
                 if max_time is None :
                     raise ValueError("max_time cannot be None if self is not a 3D array")
-                obj = np.repeat( input_array[:,:,:,np.newaxis], max_time , axis = 3)
+                obj = np.repeat( input_array[np.newaxis,:,:,:].astype(np.uint8), max_time , axis = 0)
             elif len(input_array.shape) == 4 and input_array.shape[2] == 3:
-                obj = input_array
+                obj = input_array.astype(np.uint8)
             else :
                 raise ValueError("Array shape not understood. Make sure it matches requirements stated in documentation")
         else :
@@ -172,7 +172,7 @@ class VignetteBuilder():
         ratios = []
         for columns in range(1,video_count-1):
             lines = math.ceil(video_count/columns)
-            aspectratio = (self._memap_arrays[0].shape[1] * columns ) / (self._memap_arrays[0].shape[0] * lines )
+            aspectratio = (self._memap_arrays[0].shape[2] * columns ) / (self._memap_arrays[0].shape[1] * lines )
             ratios.append( abs( aspectratio / self.target_aspect_ratio - 1 ) )
         
         self.columns = next(index for index , value in enumerate(ratios) if value == min(*ratios)) + 1 
@@ -214,8 +214,8 @@ class VignetteBuilder():
         self.padding = thickness
         
     def create_grid_background(self):
-        real_width = self.columns * self._memap_arrays[0].shape[1]
-        real_height = self.lines * self._memap_arrays[0].shape[0]
+        real_width = self.columns * self._memap_arrays[0].shape[2]
+        real_height = self.lines * self._memap_arrays[0].shape[1]
         print(real_width, real_height) 
         self.frames_xorigin = self.frames_yorigin = self.frames_interval = 0
         if  real_width > self.maxwidth or real_height > self.maxheight :
@@ -273,11 +273,12 @@ class VignetteBuilder():
             yield self.frame(time_index)
         
     def frame(self,index):
+        import time
         frame = self.background.copy()
         resize_arrays = []
         for i in range(len( self._memap_arrays )):
             time_offset = self.get_time_offset(i)
-            _fullsizevig = self._memap_arrays[i][:,:,:,index+time_offset]
+            _fullsizevig = self._memap_arrays[i][index+time_offset]
             resize_arrays.append(cv2.resize(_fullsizevig, self.get_shape(i), interpolation = cv2.INTER_AREA))
         
         for i in range(len( resize_arrays )):
@@ -292,11 +293,10 @@ class VignetteBuilder():
             except ValueError :
                 pass
                 
-# possibnle optimisations : order of indexes in memaps , the select index (time) should be first maybe for faster access
+# possibnle optimisations : order of indexes in memaps , the select index (time) should be first maybe for faster access : answer, yes it does
 # pillow SIMD resize ? https://github.com/uploadcare/pillow-simd
 # and possibli, instead of resizing each image then writing in inside the background, maybe write each inside a full size background 
 # and resize once to the desires background final shape... 
-        
         
 #%% Main test
 if __name__ == "__main__" :
@@ -312,13 +312,17 @@ if __name__ == "__main__" :
     import pImage
     
     path = r"\\Xps139370-1-ds\data_tim_2\Timothe\DATA\BehavioralVideos\Whisker_Video\Whisker_Topview\Expect_3_mush\Mouse60\210428_1"
-    videos = guti.re_folder_search(path,r".*.avi")
+    #videos = guti.re_folder_search(path,r".*.avi")
+    videos = range(30)
     vb = VignetteBuilder()
+    
     for video in videos :
-        vb.add_video( pImage.AutoVideoReader(video).frames() )
+        vid = np.random.rand(1000,1000)*255
+        vb.add_video( vid, max_time = 500, array_type = "2D_bw")
+        #vb.add_video( pImage.AutoVideoReader(video).frames() )
     vb.set_layout("grid")
 
 #%% Plot
 
-    plt.imshow(vb.frame(0))
-    vb.close()
+    #plt.imshow(vb.frame(0))
+    #vb.close()
