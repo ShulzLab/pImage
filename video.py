@@ -12,104 +12,89 @@ from cv2 import VideoWriter, VideoWriter_fourcc, VideoCapture
 import cv2
 import warnings
 
-from writers import select_writer
-import hiris
-import readers
+### OLD FILE, PREFER USING CLASSES IN 
+### READERS, WRITERS, AND CONVERTERS
 
-def select_reader(file_path):
-    if os.path.splitext(file_path)[1] == ".seq" :
-        if isinstance(hiris, ImportError) :
-            raise hiris("hiris.py not available in library folder")
-        return hiris.HirisReader
-    elif os.path.splitext(file_path)[1] in (".avi",".mp4") :
-        if isinstance(cv2, ImportError) :
-            raise cv2("OpenCV2 cannot be imported sucessfully of is not installed")
-        return readers.AviReader
-    else :
-        raise NotImplementedError("File extension/CODEC not supported yet")
+####
+# def select_reader(file_path):
+#     if os.path.splitext(file_path)[1] == ".seq" :
+#         if isinstance(hiris, ImportError) :
+#             raise hiris("hiris.py not available in library folder")
+#         return hiris.HirisReader
+#     elif os.path.splitext(file_path)[1] in (".avi",".mp4") :
+#         if isinstance(cv2, ImportError) :
+#             raise cv2("OpenCV2 cannot be imported sucessfully of is not installed")
+#         return readers.AviReader
+#     else :
+#         raise NotImplementedError("File extension/CODEC not supported yet")
 
 
-class AutoVideoReader:
-    def __init__(self,path, **kwargs):
-        self.path = path
-        selected_reader_class = select_reader(path)
-        self.reader = selected_reader_class(path, **kwargs)
-
-    def __enter__(self):
-        self.reader.open()
-        return self
-
-    def __exit__(self, type, value, traceback):
-        self.reader.close()
-
-    def frames_yielder(self,start=None,stop=None):
-        """
-        Use this to get frames one by one in a for loop 
-        (read at the file on frame per iteration so the ram stays clean)
-        used in converters to read on the fly on a separate multiprocessing.
-
-        Args:
-            start (TYPE, optional): First frame index. None if start at frame 0 of the file. Defaults to None.
-            stop (TYPE, optional): Last frame index. None if stops at last frame of the file. Defaults to None.
-
-        Yields:
-            np.array(2D): A frame per iteration in a loop context or a generator.
-
-        """
-        if start is None :
-            yield from self.reader.frames()
-        else :
-            yield from self.reader.frames_span(start,stop)
-
-    def frames(self,start=None,stop=None):
-        """
-        Wrapping a call to frames_yielder and getting all frames at once, storing them inside a numpy array 
-        (3rd dimension = time)
-        This uses more Ram but has the benefit of accessing the file only once.
-
-        Args:
-            start (TYPE, optional): First frame index. None if start at frame 0 of the file. Defaults to None.
-            stop (TYPE, optional): Last frame index. None if stops at last frame of the file. Defaults to None.
-
-        Returns:
-            np.array(3D): A frame array (3d dimension = time).
-
-        """
-        return np.moveaxis(np.array(list(self.frames_yielder(start,stop))),0,2)
-
-    @property
-    def frames_number(self):
-        return self.reader.frames_number
+# class AutoVideoReader:
     
-    def __getitem__(self,value):
-        if isinstance(value,(list,tuple)) and len(value) == 2:
-            return self.frames(*value)
-        else :
-            return self.reader.frame(value)
+#     def __new__(cls,path,**kwargs):
+#         selected_reader_class = select_reader(path)
+#         return selected_reader_class(path,**kwargs)
     
-    def frame(self,frame_nb):
-        return self.reader.frame(frame_nb)
+    # def __init__(self,path, **kwargs):
+    #     self.path = path
+    #     selected_reader_class = select_reader(path)
+    #     self.reader = selected_reader_class(path, **kwargs)
+
+    # def __enter__(self):
+    #     self.reader.open()
+    #     return self
+
+    # def __exit__(self, type, value, traceback):
+    #     self.reader.close()
+
+    # def frames_yielder(self,start=None,stop=None):
+    #     """
+    #     Use this to get frames one by one in a for loop 
+    #     (read at the file on frame per iteration so the ram stays clean)
+    #     used in converters to read on the fly on a separate multiprocessing.
+
+    #     Args:
+    #         start (TYPE, optional): First frame index. None if start at frame 0 of the file. Defaults to None.
+    #         stop (TYPE, optional): Last frame index. None if stops at last frame of the file. Defaults to None.
+
+    #     Yields:
+    #         np.array(2D): A frame per iteration in a loop context or a generator.
+
+    #     """
+    #     if start is None :
+    #         yield from self.reader.frames()
+    #     else :
+    #         yield from self.reader.frames_span(start,stop)
+
+    # def frames(self,start=None,stop=None):
+    #     """
+    #     Wrapping a call to frames_yielder and getting all frames at once, storing them inside a numpy array 
+    #     (3rd dimension = time)
+    #     This uses more Ram but has the benefit of accessing the file only once.
+
+    #     Args:
+    #         start (TYPE, optional): First frame index. None if start at frame 0 of the file. Defaults to None.
+    #         stop (TYPE, optional): Last frame index. None if stops at last frame of the file. Defaults to None.
+
+    #     Returns:
+    #         np.array(3D): A frame array (3d dimension = time).
+
+    #     """
+    #     return np.moveaxis(np.array(list(self.frames_yielder(start,stop))),0,2)
+
+    # @property
+    # def frames_number(self):
+    #     return self.reader.frames_number
     
-
-class AutoVideoWriter:
-
-    def __init__(self,path,**kwargs):
-        self.path = path
-        selected_writer_class = select_writer(path)
-        self.writer = selected_writer_class(path, **kwargs)
-
-    def __enter__(self):
-        self.writer.open()
-        return self
-
-    def __exit__(self, type, value, traceback):
-        try :
-            self.writer.close()
-        except AttributeError :
-            self.writer.__exit__(type, value, traceback)
-
-    def write(self, frame):
-        self.writer.write_frame(frame)
+    # def __getitem__(self,value):
+    #     if isinstance(value,(list,tuple)) and len(value) == 2:
+    #         return self.frames(*value)
+    #     else :
+    #         return self.reader.frame(value)
+    
+    # def frame(self,frame_nb):
+    #     return self.reader.frame(frame_nb)
+    
 
 
 class frames_ToAVI:

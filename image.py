@@ -734,21 +734,23 @@ def VideoDialog(VideoArray,**kwargs):
     else :
         return Value
 
+def create_tiff_sequence(array , dirname , sequence_name = "tiff_seq" ):
 
+    from libtiff import TIFF
+    digitcount = len(str(np.shape(array)[2]))
+    
+    for idx in range(np.shape(array)[2]):
 
+        if not os.path.isdir(os.path.join(dirname,sequence_name)) :
+             os.makedirs(os.path.join(dirname,sequence_name))
 
+        tiff = TIFF.open(os.path.join(dirname,sequence_name,  "frame_" + str(idx).zfill(digitcount) + '.tiff'), mode='w')
+        tiff.write_image(array[:,:,idx])
+        tiff.close()
 
 
 if __name__ == "__main__":
-    #import imageio
-    #img = Empty_img(500,800)
-    #imageio.imwrite("out.png", img)
-    img = (np.random.rand(20,20,20)*254).astype(np.uint8)
 
-    returnval = VideoDialog(img,mode = "coords")#, supdata = )
-    #returnval = VideoDialog(img,mode = "binarise")#, supdata = )
-    #returnval = VideoDialog(img,mode = "full")#, supdata = )
-    #print(returnval)
-    #print(returnval)
-    #QuickHist(img[:,:,0])
+    img = (np.random.rand(20,20,20)*254).astype(np.uint8)
+    returnval = VideoDialog(img,mode = "coords")
     print(returnval)

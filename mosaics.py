@@ -9,6 +9,8 @@ import winerror
 import win32api
 import win32job
 
+import readers
+
 g_hjob = None
 
 def create_job(job_name='', breakaway='silent'):
@@ -146,42 +148,129 @@ class array_video_color(memarray):
     
 try :
     _pass_memset
-except :
+except NameError:
     assign_job(create_job())
     limit_memory(10000 * 1024 * 1024) #10GB memory Max
     _pass_memset = None
     
+    
+class vignette_object():
+    
+    def __init__(self,_object):
+        if isinstance(_object,array_video_color):
+            self.type = "memap"
+        elif isinstance(_object,np.ndarray):
+            self.type= "array"
+        elif isinstance(_object,readers.DefaultReader):
+            self.type = "reader"
+        elif isinstance(_object,VignetteBuilder):
+            self.type = "builder"
+        self.object = _object
+            
+    @property
+    def shape(self):
+        if self.type == "memap" :
+             return self.object.shape
+        elif self.type == "array" :
+            shape =  self.object.shape
+            return (shape[2],shape[0],shape[1])
+        elif self.type == "reader"  :
+            shape =  self.object.shape
+            return (shape[2],shape[0],shape[1])
+        elif self.type == "builder" :
+            if not self.object._layout_ready:
+                self.object.get_background_factory()()
+            return (self.object.get_total_duration(),self.object.background_height,self.object.background_width)
+        
+    def get_frame(self,frame_id):
+        if self.type == "memap" :
+            if frame_id > self.object.shape[0]-1 :
+                return np.zeros((self.object.shape[1],self.object.shape[2],3),dtype = np.uint8)
+            return self.object[frame_id]
+        elif self.type == "array" :
+            if frame_id > self.object.shape[0]-1 :
+                return np.zeros((self.object.shape[0],self.object.shape[1],3),dtype = np.uint8)
+            return self.object[:,:,frame_id]
+        elif self.type == "reader" :
+            if frame_id > self.object.frames_number - 1 :
+                return np.zeros((self.object.width,self.object.height,3),dtype = np.uint8)
+            #only BW readers for now
+            return np.repeat(self.object[:,:,frame_id][:,:,np.newaxis], 3, axis = 2)
+        elif self.type == "builder" :
+            return self.object.frame(frame_id)
+            
+    def close(self):
+        if self.type == "memap" :
+            self.object.close()
+
 class VignetteBuilder():
         
-    def __init__(self,target_aspect_ratio = 16/9,maxdim = 1000) :
-        self._memap_arrays = []
+    def __init__(self,target_aspect_ratio = 16/9,maxdim = 1000,**kwargs) :
+        self.v_objects = []
         self.time_offsets = []
         self.target_aspect_ratio = target_aspect_ratio
-        self.border = None
-        self.padding = None
+        self.border = 0
+        self.padding = 0
         self.maxwidth = self.maxheight = maxdim
+        self.bg_color = kwargs.get("bg_color",0)
+        self._layout_ready = False
         
-    def add_video(self,array,**kwargs):
+    def add_video(self,_object,**kwargs):
         self.time_offsets.append( kwargs.pop("time_offset",0))
-        self._memap_arrays.append( array_video_color(array,**kwargs) )
-        #self._memap_arrays[-1].flush()
+        memmapping = kwargs.pop("memmap_mode", True)
+        if memmapping and isinstance(_object,np.ndarray):
+            _object = array_video_color(_object,**kwargs)
+        self.v_objects.append( vignette_object(_object) )
+        self._layout_ready = False
+        #self.v_objects[-1].object.flush()
         
-    def grid_layout(self):
-        import math
-        video_count = len(self._memap_arrays)
+    def add_border(self,width):
+        self.border = width
+        self._layout_ready = False
+        
+    def add_padding(self,thickness):
+        self.padding = thickness
+        self._layout_ready = False
+        
+    def get_layout_factory(self):
+        if self.layout == "grid":
+            return self._apply_grid_layout
+        elif self.layout == "snappy":
+            return self._apply_snappy_layout
+        else :
+            raise ValueError("Unknown layout style")
+    
+    def set_layout(self, layout_style, *args ):
+        self.layout = layout_style
+        self.get_layout_factory()(*args)
+        self._layout_ready = False
+
+    def _apply_grid_layout(self,*args):
+        video_count = len(self.v_objects)
         ratios = []
-        for columns in range(1,video_count-1):
+        for columns in range(1,video_count):
             lines = math.ceil(video_count/columns)
-            aspectratio = (self._memap_arrays[0].shape[2] * columns ) / (self._memap_arrays[0].shape[1] * lines )
+            aspectratio = (self.v_objects[0].shape[2] * columns ) / (self.v_objects[0].shape[1] * lines )
             ratios.append( abs( aspectratio / self.target_aspect_ratio - 1 ) )
         
-        self.columns = next(index for index , value in enumerate(ratios) if value == min(*ratios)) + 1 
+        self.columns = next(index for index , value in enumerate(ratios) if value == min(ratios)) + 1 
         self.lines = math.ceil(video_count/self.columns)
+       
         
-        self.create_grid_background()
-        
-    def snappy_layout(self):
-        pass
+    def _apply_snappy_layout(self,alignment = "hori",*args):
+        if len(self.v_objects) > 2:
+            raise ValueError("Cannot snap more than two objects for now")
+            
+        if alignment == "hori" or alignment == "horizontal" :
+            self.lines = 1
+            self.columns = 2
+            
+        if alignment == "vert" or alignment == "vertical" :
+            self.lines = 2
+            self.columns = 1
+            
+        self.layout = "snappy"
+    
         # TODO : add ability to add videos of different shapes and snap them to a dimension of the previously added frames. In that case ,order of frames addition will matter, and 
         # a metadata specifying the x or y dimension to snap onto will also be necessary, as well as a side (top, left ,rigth , bottom)
         # will be quite a pain to code I expect... Not a primordial feature for now.
@@ -189,7 +278,7 @@ class VignetteBuilder():
     def get_frame_location(self,index):
         col = 0
         lin = 0
-        for i in range(len(self._memap_arrays)):
+        for i in range(len(self.v_objects)):
             if index == i :
                 break
             col = col + 1
@@ -200,24 +289,45 @@ class VignetteBuilder():
     
     def get_frame_ccordinates(self,index):
         col,lin = self.get_frame_location(index)
-        x = self.frames_yorigin + (lin * self.frames_interval) + (lin * self.frameheight )
-        y = self.frames_xorigin + (col * self.frames_interval) + (col * self.framewidth )
+        x = self.frames_xorigin + (lin * self.padding) + (lin * self.frameheight )
+        y = self.frames_yorigin + (col * self.padding) + (col * self.framewidth )
         return x, y, x + self.frameheight, y + self.framewidth
     
-    def get_shape(self,index):
-        return self.framewidth, self.frameheight
-    
-    def add_border(self,width):
-        self.border = width
+    def _create_snappy_bg(self):
+        # object 1 shape does not change
+        # self.frameheight and self.framewidth are destined to object 2
+        if self.lines == 1 :
+            real_height = self.v_objects[0].shape[1]
+            self.frameheight =  real_height #if real_height <= self.maxheight else self.maxheight
+            # TODO : change ability to fix a dimension for snappy later.
+            scale_multipler = self.frameheight / self.v_objects[1].shape[1] 
+            self.framewidth = math.ceil( scale_multipler * self.v_objects[1].shape[2])
+            
+            self.background_height = self.frameheight
+            self.background_width = self.framewidth + self.v_objects[0].shape[2]
+            
+        elif self.columns == 1 :
+            real_width = self.v_objects[0].shape[2]
+            self.framewidth =  real_width# if real_width <= self.maxwidth else self.maxwidth
+            # TODO : change ability to fix a dimension for snappy later.
+            scale_multipler = self.framewidth / self.v_objects[1].shape[2] 
+            self.frameheight = math.ceil( scale_multipler * self.v_objects[1].shape[1])
         
-    def add_padding(self,thickness):
-        self.padding = thickness
+            self.background_width = self.framewidth
+            self.background_height = self.frameheight + self.v_objects[0].shape[1]
         
-    def create_grid_background(self):
-        real_width = self.columns * self._memap_arrays[0].shape[2]
-        real_height = self.lines * self._memap_arrays[0].shape[1]
+        else :
+            raise ValueError("At least one dimension must be equal to 1")
+        
+        self.frames_xorigin = self.frames_yorigin = 0
+        self._make_spacings()
+        self._layout_ready = True
+        
+    def _create_grid_bg(self):
+        real_width = self.columns * self.v_objects[0].shape[2]
+        real_height = self.lines * self.v_objects[0].shape[1]
         print(real_width, real_height) 
-        self.frames_xorigin = self.frames_yorigin = self.frames_interval = 0
+        self.frames_xorigin = self.frames_yorigin = 0
         if  real_width > self.maxwidth or real_height > self.maxheight :
             if real_width / self.maxwidth > real_height / self.maxheight :
                 width = self.maxwidth
@@ -235,59 +345,88 @@ class VignetteBuilder():
         self.background_width = self.framewidth * self.columns
         self.background_height = self.frameheight * self.lines
         
-        if self.padding is not None :
-            self.background_height = self.background_height + (self.lines - 1 * self.padding)
-            self.background_width = self.background_width + (self.columns - 1 * self.padding)
-            self.frames_interval = self.padding
+        self._make_spacings()
+              
+        self._layout_ready = True
+        
+    def _make_spacings(self):
+        
+        #PADDING
+        self.background_height = self.background_height + ((self.lines - 1) * self.padding)
+        self.background_width = self.background_width + ((self.columns - 1) * self.padding)
+        
+        #BORDER
+        self.background_height = self.background_height + (2*self.border)
+        self.background_width = self.background_width + (2*self.border)
+        self.frames_xorigin = self.frames_xorigin + self.border
+        self.frames_yorigin = self.frames_yorigin + self.border
+        
+    def get_background_factory(self):
+        if self.layout == "snappy" :
+            return self._create_snappy_bg
+        elif self.layout == "grid" :
+            return self._create_grid_bg
+        else :
+            raise ValueError("layout type not understood")
             
-        if self.border is not None :
-            self.background_height = self.background_height + (2*self.border)
-            self.background_width = self.background_width + (2*self.border)
-            self.frames_xorigin = self.frames_xorigin + self.border
-            self.frames_yorigin = self.frames_yorigin + self.border
-            
-        self.background = np.zeros((self.background_height,self.background_width,3),dtype = np.uint8)
-            
+    def get_background(self):
+        if not self._layout_ready:
+            self.get_background_factory()()
+        return np.ones((self.background_height,self.background_width,3),dtype = np.uint8) * self.bg_color
+        
     def get_total_duration(self):
         # TODO : use time offset and duration of videos to get the total duration of the video in frames
-        pass
-    
+        return 100
+        
     def get_time_offset(self,index):
         # use time offset videos to get the absolute positive offset from 0 (requires get_total_duration to  make the  offset positive)
         offset = self.time_offsets[index] 
     
         # TODO : calculate here the offsets etc
         return offset
-    
-    def set_layout(self, layout_style ):
-        if layout_style == "grid" :
-            self.grid_layout()
-        elif layout_style == "snappy" :
-            pass # TODO : maybne add arguments to set layour here to specify is frame index N should be first used to snap onto frame X and then frame Y onto the NX assembly etc...
-        else :
-            raise ValueError("Unknown layout style")
-    
+        
     def frames(self):
         total_time = self.get_total_duration()
         for time_index in range(total_time):
             yield self.frame(time_index)
         
-    def frame(self,index):
-        import time
-        frame = self.background.copy()
+    def _snappy_frame_getter(self,frame,index): 
+         
+        x , y = self.frames_xorigin , self.frames_yorigin
+        ex,ey = x + self.v_objects[0].shape[1] , y + self.v_objects[0].shape[2]
+        frame[x:ex,y:ey,:] = self.v_objects[0].get_frame(index+self.get_time_offset(0))
+        
+        col,lin = self.get_frame_location(1)
+        x2 = x + (self.v_objects[0].shape[1]*(lin)) + (lin * self.padding) 
+        y2 = y + (self.v_objects[0].shape[2]*(col)) + (col * self.padding) 
+        ex2 , ey2 = x2 + self.frameheight, y2 + self.framewidth
+        
+        frame[x2:ex2,y2:ey2,:] = cv2.resize(self.v_objects[1].get_frame(index+self.get_time_offset(1)), ( self.framewidth, self.frameheight), interpolation = cv2.INTER_AREA)
+        return frame
+    
+    def _grid_frame_getter(self,frame,index):
+        
         resize_arrays = []
-        for i in range(len( self._memap_arrays )):
+        for i in range(len( self.v_objects )):
             time_offset = self.get_time_offset(i)
-            _fullsizevig = self._memap_arrays[i][index+time_offset]
-            resize_arrays.append(cv2.resize(_fullsizevig, self.get_shape(i), interpolation = cv2.INTER_AREA))
+            _fullsizevig = self.v_objects[i].get_frame(index+time_offset)
+            resize_arrays.append(cv2.resize(_fullsizevig, (self.framewidth, self.frameheight), interpolation = cv2.INTER_AREA))
         
         for i in range(len( resize_arrays )):
             x,y,ex,ey = self.get_frame_ccordinates(i)
             frame[x:ex,y:ey,:] = resize_arrays[i]
         return frame
-    
+        
+    def frame(self,index):
+        background = self.get_background()
+        if self.layout == "grid":
+            return self._grid_frame_getter(background,index)
+                
+        if self.layout == "snappy" :
+            return self._snappy_frame_getter(background,index)
+
     def close(self):
-        for array in self._memap_arrays:
+        for array in self.v_objects:
             try :
                 array.close()
             except ValueError :

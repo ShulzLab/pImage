@@ -4,97 +4,194 @@
 import os
 import pyprind
 
+
+
 try :
     import cv2
 except ImportError as e :
     cv2 = e
 
+        
+def select_extension_reader(file_path):
+    import hiris
+    if os.path.splitext(file_path)[1] == ".seq" :
+        if isinstance(hiris, ImportError) :
+            raise hiris("hiris.py not available in library folder")
+        return hiris.HirisReader
+    elif os.path.splitext(file_path)[1] in (".avi",".mp4") :
+        if isinstance(cv2, ImportError) :
+            raise cv2("OpenCV2 cannot be imported sucessfully of is not installed")
+        return AviReader
+    else :
+        raise NotImplementedError("File extension/CODEC not supported yet")
+
+
+class AutoVideoReader:
+    #do not inherit from this class. It only returns other classes factories. 
+    #You should inherit from what it yields instead
+    def __new__(cls,path,**kwargs):
+        from transformations import TransformingReader, available_transforms
+            
+        if set(kwargs.keys()).intersection(available_transforms) :
+            return TransformingReader(path,**kwargs)
+        selected_reader_class = select_extension_reader(path)
+        return selected_reader_class(path,**kwargs)
 
 class DefaultReader:
+    ############## Methods that needs to be overriden :        
     def __init__(self):
-        self.cursor = 0
-        
-    def _check_edge_cursors(self,down,up):
-        if down < 0 :
-             down = 0
-        if up > self.frames_number :
-            up = self.frames_number
-        self.set_cursor(down)
-        return down, up
-    
-    def set_cursor(self,value):
-        self.cursor = value
-    
-    def frames(self):
-        self.open()
-        self.set_cursor(0)
-        try :
-            while True :
-                yield self._get_frame()
-        except IOError : 
-            return
-        #yield from self.frames_span(0,self.frames_number)
-        
-    def frames_span(self,down,up):
-        down, up = self._check_edge_cursors(down,up)
-        if up-down > 100 : 
-            bar = pyprind.ProgBar(up-down)
-            prog = True
-        else :
-            prog = False
-        for i in range(down,up):
-            if prog :
-                bar.update()
-            yield self.frame(i)
+        pass
             
-    def frame(self,frame_id = None):
-        if frame_id is None :
-            frame_id = self.cursor
-        self.cursor += 1
-        return self._get_frame(frame_id)
+    def _get_frame(self,frame_id):
+        raise NotImplementedError
+        #make it return the specific frame
+        
+    def _get_all(self):
+        raise NotImplementedError
+        #make it a yielder for all frames in object (no need for indexing)
+        
+    def _get_frames_number(self):
+        raise NotImplementedError
+        #returns the frames number implementing any calculation needed
+        
+    ############## Methods to override if relevant :  
+    def open(self):
+        pass
     
-            
-class AviReader(DefaultReader):
-    def __init__(self,file_path):
-        super().__init__()
-        self.path = file_path
-
+    def close(self):
+        pass
+    
     def __enter__(self):
         self.open()
         return self
-
+    
     def __exit__(self, type, value, traceback):
-        #Exception handling here
         self.close()
 
+    ############## Methods to keep :  
+    @property
+    def frames_number(self):
+        try : 
+            self._frames_number
+        except AttributeError:
+            self._frames_number = self._get_frames_number()
+        finally :
+            return self._frames_number
+        
+    def sequence(self,start = None, stop = None):
+        if start is None :
+            start = 0
+        if stop is None : 
+            stop = self.frames_number   
+            
+        if stop-start > 100 : 
+            bar = pyprind.ProgBar(stop-start)
+            prog = True
+        else :
+            prog = False
+        
+        for i in range(start,stop):
+            if prog :
+                bar.update()
+            yield self.frame(i)
+        
+            
+    def frames(self):
+        yield from self._get_all()
+            
+    def frame(self,frame_id):
+        if frame_id < 0 :
+            raise ValueError("Cannot get negative frame ids")
+        if frame_id > self.frames_number-1:
+            raise ValueError("Not enough frames in reader")
+        return self._get_frame(frame_id)
+    
+    def __getitem__(self,index):
+        import numpy as np
+        try : 
+            time_start, time_stop = index[2].start,index[2].stop
+        except (TypeError, AttributeError):
+            _slice  = slice(index[2],index[2]+1)
+            time_start, time_stop = _slice.start, _slice.stop
+        return np.squeeze(np.moveaxis(np.array(list(self.sequence(time_start,time_stop))),0,2) [(index[0],index[1])])
+    
+    @property
+    def width(self):
+        try :
+            self._width
+        except AttributeError : 
+            shape = self._get_frame(0).shape
+            self._height = shape[1]
+            self._width = shape[0]
+        finally : 
+            return self._width
+        
+    @property
+    def height(self):
+        try :
+            self._height
+        except AttributeError : 
+            shape = self._get_frame(0).shape
+            self._height = shape[1]
+            self._width = shape[0]
+        finally : 
+            return self._height
+    
+    @property
+    def shape(self):
+        return (self.width, self.height , self.frames_number)
+                
+class AviReader(DefaultReader):
+    #only supports grayscale for now
+    
+    def __init__(self,file_path):
+        super().__init__()
+        self.path = file_path 
+
     def open(self):
-        self.file_handle = cv2.VideoCapture( self.path ,cv2.IMREAD_GRAYSCALE )
+        try : 
+            self.file_handle
+        except AttributeError : 
+            self.file_handle = cv2.VideoCapture( self.path ,cv2.IMREAD_GRAYSCALE )
+        finally :
+            return self.file_handle
         #width  = int(Handlevid.get(cv2.CAP_PROP_FRAME_WIDTH))
         #height = int(Handlevid.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     def close(self):
-        pass
-
-    @property
-    def frames_number(self):
         try :
-            #try with ffmpeg if imported, as it showed more accurate results that this shitty nonsense way of calulating frame count of opencv
+            self.file_handle.release()
+        except AttributeError:
+            pass
+
+    def _get_frames_number(self):
+
+        try :#try with ffmpeg if imported, as it showed more accurate results 
+            #that this shitty nonsense way of calulating frame count of opencv
             import ffmpeg
             return int(ffmpeg.probe(self.path)["streams"][0]["nb_frames"])
         except ImportError :
+            self.open()
             return int(self.file_handle.get(cv2.CAP_PROP_FRAME_COUNT))
-        
-    def set_cursor(self,value):
-        self.cursor = value
-        self.file_handle.set(cv2.CAP_PROP_POS_FRAMES, self.cursor)
 
-    def _get_frame(self, frame_id=None):
-        if frame_id is not None :
-            self.file_handle.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
-        _bool , temp_frame = self.file_handle.read()
-        if not _bool:
+    def _get_frame(self, frame_id):
+        self.open()
+        self.file_handle.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
+        success , temp_frame = self.file_handle.read()
+        if not success:
             raise IOError("end of video file")
         return temp_frame[:,:,0]
-        
     
-        
+    def _get_all(self):
+        self.open()
+        self.file_handle.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        while True :
+            success, temp_frame = self.file_handle.read()
+            if not success :
+                break
+            yield temp_frame[:,:,0]
+    
+if __name__ == "__main__" :
+    import matplotlib.pyplot as plt
+
+    test  = AutoVideoReader("tes.avi",rotate = 1)

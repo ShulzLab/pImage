@@ -10,15 +10,13 @@ import numpy as np
 import re, configparser
 
 sys.path.append(os.path.dirname(__file__))
-import readers
+from readers import DefaultReader
 
-
-class HirisReader(readers.DefaultReader):
-
-    def __init__(self,path, **kwargs):
-        filename = os.path.splitext(os.path.split(path)[1])[0]
+class HirisReader(DefaultReader):
+    
+    def __init__(self,path):
         def files_match(input_folder, regexp):
-            def bool_regexp(input_line,regex,**kwargs):
+            def bool_regexp(input_line,regex):
                 matches = re.finditer(regex, input_line, re.MULTILINE)
                 for matchnum, match in enumerate(matches,  start = 1):
                     return True
@@ -26,19 +24,24 @@ class HirisReader(readers.DefaultReader):
             file_list = os.listdir(input_folder)
             return [ os.path.join(input_folder,file) for file in file_list if bool_regexp(file,regexp)]
 
+        super().__init__()
+        filename = os.path.splitext(os.path.split(path)[1])[0]
+
         self.seqfile = HirisSeqFile(path)
         self.dir = path if os.path.splitext(path)[1]=='' else os.path.dirname(path)
         binfiles_names = sorted(files_match(self.dir ,rf"^{filename}.*\.bin$"))
         self.binfiles = [ HirisBinFile(_file_path, self.seqfile) for _file_path in binfiles_names]
 
-
     def _get_frame(self, frame_id):
         index, frame_offset = self.find_frame_binfile(frame_id)
         return self.binfiles[index].get_frame(slice(frame_offset,frame_offset+1,1))[0]
 
-    def frames(self):
+    def _get_all(self):
         for binfile in self.binfiles :
             yield from binfile.frames()
+
+    def _get_frames_number(self):
+        return sum([ binfile.frames_number for binfile in self.binfiles ])
 
     def find_frame_binfile(self, frame_id):
         #TODO : make this more efficient so that time is constant whatever the index
@@ -48,25 +51,6 @@ class HirisReader(readers.DefaultReader):
                 return index, frame_id - frame_count
             frame_count += binfile.frames_number
         raise EOFError
-
-    def close(self):
-        
-        pass
-
-    def open(self):
-        return self
-
-    def __enter__(self):
-        self.open()
-        return self
-
-    def __exit__(self, type, value, traceback):       
-        #Exception handling here
-        self.close()
-
-    @property
-    def frames_number(self):
-        return sum([ binfile.frames_number for binfile in self.binfiles ])
 
 class HirisSeqFile(dict):
     def __init__(self,file_path):

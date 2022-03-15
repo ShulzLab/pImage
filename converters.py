@@ -19,34 +19,32 @@ Created on Tue Oct 12 17:34:44 2021
 
 from multiprocessing import Pool, Manager
 import sys, time
-from video import AutoVideoReader
-from video import AutoVideoWriter
+from readers import AutoVideoReader
+from writers import AutoVideoWriter
 
-def _lambda_transform(item):
-    return item
-
-class Standard_Converter:
+class StandardConverter:
 
     def __init__(self,input_path,output_path, **kwargs):
 
         m = Manager()
         self.read_queue = m.Queue()
-        self.transformed_queue = m.Queue()
+        #self.transformed_queue = m.Queue()
         self.message_queue = m.Queue()
 
         self.input_path = input_path
         self.output_path = output_path
-        self.kwargs = kwargs
+        self.reader_kwargs = kwargs.get("reader",dict())
+        self.writer_kwargs = kwargs.get("writer",dict())
 
     def start(self):
-        with Pool(processes=3) as pool:
+        with Pool(processes=2) as pool:
 
             read_process = pool.apply_async(self.read, (AutoVideoReader,self.read_queue,self.message_queue))
-            transform_process = pool.apply_async(self.transform, (self.kwargs.pop("transform_function",_lambda_transform),self.read_queue,self.transformed_queue,self.message_queue))
-            write_process = pool.apply_async(self.write, (AutoVideoWriter,self.transformed_queue,self.message_queue))
+            #transform_process = pool.apply_async(self.transform, (self.kwargs.pop("transform_function",_lambda_transform),self.read_queue,self.transformed_queue,self.message_queue))
+            write_process = pool.apply_async(self.write, (AutoVideoWriter,self.read_queue,self.message_queue))
 
             self.last_update = time.time()
-            self.r = self.t = self.w = 0
+            self.r = self.w = 0
             self.max_i = 1
             while True :
                 msg = self.message_queue.get()
@@ -57,43 +55,43 @@ class Standard_Converter:
 
     def msg_parser(self,message):
 
-        if message in ("r", "t" ,"w"):
+        if message in ("r" ,"w"):
             exec(f"self.{message} += 1")
             if time.time() - self.last_update > 1 :
                 self.last_update = time.time()
-                message = fr"""Reading : {(self.r/self.max_i)*100:.2f} % - Transforming : {(self.t/self.max_i)*100:.2f} % - Writing : {(self.w/self.max_i)*100:.2f} %"""
+                message = fr"""Reading : {(self.r/self.max_i)*100:.2f} % - Writing : {(self.w/self.max_i)*100:.2f} %"""
                 print(message, end = '\r', flush=True)
         elif len(message) >= 7 and message[:7] == "frameno" :
             self.max_i = int(message[7:])
         elif len(message) >= 3 and message[:3] == "End" :
             print("\n" + message, end = '', flush=True)
 
-    def read(self, AutoVideoReader, read_queue , message_queue):
+    def read(self, reader_class, read_queue , message_queue):
 
-        with AutoVideoReader(self.input_path, **self.kwargs) as vid_read :
+        with reader_class(self.input_path, **self.reader_kwargs) as vid_read :
             message_queue.put("frameno"+str(vid_read.frames_number))
-            for frame in vid_read.frames_yielder():
+            for frame in vid_read.frames():
                 read_queue.put(frame)
                 message_queue.put("r")
         read_queue.put(None)
         message_queue.put("End of read process")
         sys.stdout.flush()
 
-    def transform(self, transform_function, read_queue, transformed_queue , message_queue):
-        while True :
-            frame = read_queue.get()
-            if frame is None:
-                transformed_queue.put(None)
-                break
-            message_queue.put("t")
-            transformed_queue.put(transform_function(frame))
-        message_queue.put("End of transform process")
-        sys.stdout.flush()
+    # def transform(self, transform_function, read_queue, transformed_queue , message_queue):
+    #     while True :
+    #         frame = read_queue.get()
+    #         if frame is None:
+    #             transformed_queue.put(None)
+    #             break
+    #         message_queue.put("t")
+    #         transformed_queue.put(transform_function(frame))
+    #     message_queue.put("End of transform process")
+    #     sys.stdout.flush()
 
-    def write(self,AutoVideoWriter, transformed_queue, message_queue):
-        with AutoVideoWriter(self.output_path, **self.kwargs) as vid_write :
+    def write(self,writer_class, read_queue, message_queue):
+        with writer_class(self.output_path, **self.writer_kwargs) as vid_write :
             while True :
-                frame = transformed_queue.get()
+                frame = read_queue.get()
                 if frame is None:
                     break
                 message_queue.put("w")
@@ -102,11 +100,7 @@ class Standard_Converter:
         sys.stdout.flush()
 
 if __name__ == "__main__" :
-    test = Standard_Converter( r"C:\Users\Timothe\Desktop\Testzone\Mouse33_2020-07-06T16.15.31.avi" ,  r"C:\Users\Timothe\Desktop\Testzone\TESSSST.avi")
+    test = StandardConverter( r"F:\\Timothe\\DATA\\BehavioralVideos\\Whisker_Video\\Whisker_Topview\\Expect_3_mush\\Mouse63\\210521_VSD1\\Mouse63_2021-05-21T16.44.57.avi" ,  
+                             r"C:\Users\Timothe\NasgoyaveOC\Professionnel\TheseUNIC\DevScripts\Python\__packages__\pImage\rotst.avi"
+                             ,reader = {"rotate":1})
     test.start()
-
-
-
-
-
-

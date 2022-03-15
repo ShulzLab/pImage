@@ -21,19 +21,51 @@ import os, warnings
 import numpy as np
 from cv2 import VideoWriter, VideoWriter_fourcc
 
-try :
-    import hiris
-except ImportError as e :
-    hiris = e
 
-
-def select_writer(file_path):
+def select_extension_writer(file_path):
     if os.path.splitext(file_path)[1] == ".avi" :
         return AviWriter
     else :
         raise NotImplementedError("File extension/CODEC not supported yet")
 
-class AviWriter:
+
+class AutoVideoWriter:
+    
+    def __new__(cls,path):
+        selected_writer_class = select_extension_writer(path)
+        return selected_writer_class(path)
+
+class DefaultWriter:
+    
+    ############## Methods that needs to be overriden :      
+    def __init__(self):
+        pass
+    
+    def _write_frame(self,array):
+        raise NotImplementedError
+        #implement the actual writing of one frame to the file output
+        
+        
+    ############## Methods to overrride if necessary :  
+    def open(self):
+        pass
+    
+    def close(self):
+        pass
+    
+    ############## Methods to keep :      
+    def __enter__(self):
+        self.open()
+        return self
+    
+    def __exit__(self, type, value, traceback):
+        #Exception handling here
+        self.close()
+        
+    def write(self,array):
+        self._write_frame(array)
+
+class AviWriter(DefaultWriter):
     def __init__(self,path,**kwargs):
         """
         Creates an object that contains all parameters to create a video,
@@ -80,7 +112,6 @@ class AviWriter:
             os.makedirs(os.path.split(path)[0])
 
         self.path = path
-
         self.rgbconv = kwargs.get("rgbconv",None)
         # /!\ : if data from matplotlib exported arrays : color layers are not right
         #necessary to add parameter  rgbconv = "RGB2BGR"
@@ -90,37 +121,27 @@ class AviWriter:
         self.dtype = kwargs.get("dtype", 'uint8')
 
         self.fourcc = VideoWriter_fourcc(*self.codec)
+        
+        self.file_handle = None
+        
+    def _write_frame(self,array):
 
-    def open(self):
-        self.vid = None
-
-    def close(self):
-        if self.vid is None :
-            warnings.warn("No data has been given, video was not created")
-            return
-        self.vid.release()
-
-    def __enter__(self):
-        self.open()
-        return self
-
-    def __exit__(self, type, value, traceback):
-        #Exception handling here
-        self.close()
-
-    def write_frame(self,array):
-
-        if self.vid is None :
+        if self.file_handle is None :
             self.size = np.shape(array)[1], np.shape(array)[0]
-            self.vid = VideoWriter(self.path, self.fourcc, self.fps, self.size, True)#color is always True because...
+            self.file_handle = VideoWriter(self.path, self.fourcc, self.fps, self.size, True)#color is always True because...
 
         frame = array.astype(self.dtype)
         if len(frame.shape) < 3 :
             frame = np.repeat(frame[:,:,np.newaxis],3,axis = 2)#...I just duplicate 3 times gray data if it isn't
         elif self.rgbconv is not None :
             frame = eval( f"cv2.cvtColor(frame, cv2.COLOR_{self.rgbconv})" )
-        self.vid.write(frame)
+        self.file_handle.write(frame)
 
+    def close(self):
+        if self.file_handle is None :
+            warnings.warn("No data has been given, video was not created")
+            return 
+        self.file_handle.release()
 
 
 
