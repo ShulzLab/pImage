@@ -25,6 +25,8 @@ from cv2 import VideoWriter, VideoWriter_fourcc
 def select_extension_writer(file_path):
     if os.path.splitext(file_path)[1] == ".avi" :
         return AviWriter
+    if os.path.splitext(file_path)[1] == ".tiff" :
+        return TiffWriter
     else :
         raise NotImplementedError("File extension/CODEC not supported yet")
 
@@ -143,6 +145,25 @@ class AviWriter(DefaultWriter):
             return 
         self.file_handle.release()
 
+class TiffWriter(DefaultWriter):
+    from libtiff import TIFF as tiff_writer
+    def __init__(self,path,**kwargs):
+        self.path =  os.path.dirname(path)
+        self.file_prefix = os.path.splitext(os.path.basename(path))[0]
+        self.index = 0
+        
+    def _make_full_fullpath(self,index):
+        if not os.path.isdir(self.path) :
+            os.makedirs(self.path)
+        return os.path.join(self.path,self.file_prefix + f"_{str(index).zfill(5)}.tiff")
+        
+    def _write_frame(self,array):
+        _fullpath = self._make_full_fullpath(self.index)
+            
+        tiff_writer = self.tiff_writer.open(_fullpath, mode = "w")
+        tiff_writer.write_image(array)
+        tiff_writer.close()
+        self.index += 1
 
 
 

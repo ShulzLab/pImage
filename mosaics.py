@@ -80,7 +80,6 @@ class memarray(np.memmap):
 
 class array_video_color(memarray):
     """
-    TODO : take as input argument : 
     - 2D_color (treat input array as 3D colored single frame, so convert from shape (X,X,3) to (X,X,3,T))
     - 2D_bw (treat input aray as 2D BW : so convert from shape (X,X) to (X,X,3,T))
     - None (if 3D array : convert as 4D from (X,X,T) to (X,X,3,T) 
@@ -156,7 +155,7 @@ except NameError:
     
 class vignette_object():
     
-    def __init__(self,_object):
+    def __init__(self,_object,parent = None):
         if isinstance(_object,array_video_color):
             self.type = "memap"
         elif isinstance(_object,np.ndarray):
@@ -166,6 +165,7 @@ class vignette_object():
         elif isinstance(_object,VignetteBuilder):
             self.type = "builder"
         self.object = _object
+        self.parent = parent
             
     @property
     def shape(self):
@@ -182,21 +182,25 @@ class vignette_object():
                 self.object.get_background_factory()()
             return (self.object.get_total_duration(),self.object.background_height,self.object.background_width)
         
+        
     def get_frame(self,frame_id):
         if self.type == "memap" :
-            if frame_id > self.object.shape[0]-1 :
-                return np.zeros((self.object.shape[1],self.object.shape[2],3),dtype = np.uint8)
+            if 0 > frame_id or frame_id > self.object.shape[0]-1 :
+                return np.ones((self.object.shape[1],self.object.shape[2],3),dtype = np.uint8) * self.parent.bg_color
             return self.object[frame_id]
         elif self.type == "array" :
-            if frame_id > self.object.shape[0]-1 :
-                return np.zeros((self.object.shape[0],self.object.shape[1],3),dtype = np.uint8)
+            if 0 > frame_id or frame_id >= self.object.shape[2] :
+        
+                return np.ones((self.object.shape[0],self.object.shape[1],3),dtype = np.uint8)  * self.parent.bg_color
             return self.object[:,:,frame_id]
         elif self.type == "reader" :
-            if frame_id > self.object.frames_number - 1 :
-                return np.zeros((self.object.width,self.object.height,3),dtype = np.uint8)
+            if 0 > frame_id or frame_id > self.object.frames_number - 1 :
+                return np.ones((self.object.height,self.object.width,3),dtype = np.uint8)  * self.parent.bg_color
             #only BW readers for now
             return np.repeat(self.object[:,:,frame_id][:,:,np.newaxis], 3, axis = 2)
         elif self.type == "builder" :
+            if 0 > frame_id or frame_id > self.object.get_total_duration() :
+                return self.object.get_background() 
             return self.object.frame(frame_id)
             
     def close(self):
@@ -217,10 +221,10 @@ class VignetteBuilder():
         
     def add_video(self,_object,**kwargs):
         self.time_offsets.append( kwargs.pop("time_offset",0))
-        memmapping = kwargs.pop("memmap_mode", True)
+        memmapping = kwargs.pop("memmap_mode", False)
         if memmapping and isinstance(_object,np.ndarray):
             _object = array_video_color(_object,**kwargs)
-        self.v_objects.append( vignette_object(_object) )
+        self.v_objects.append( vignette_object(_object, self))
         self._layout_ready = False
         #self.v_objects[-1].object.flush()
         
@@ -253,7 +257,10 @@ class VignetteBuilder():
             aspectratio = (self.v_objects[0].shape[2] * columns ) / (self.v_objects[0].shape[1] * lines )
             ratios.append( abs( aspectratio / self.target_aspect_ratio - 1 ) )
         
-        self.columns = next(index for index , value in enumerate(ratios) if value == min(ratios)) + 1 
+        try :
+            self.columns = next(index for index , value in enumerate(ratios) if value == min(ratios)) + 1 
+        except StopIteration :
+            raise ValueError("Must have more than one video to make a grid layout. Add more videos")
         self.lines = math.ceil(video_count/self.columns)
        
         
@@ -270,11 +277,7 @@ class VignetteBuilder():
             self.columns = 1
             
         self.layout = "snappy"
-    
-        # TODO : add ability to add videos of different shapes and snap them to a dimension of the previously added frames. In that case ,order of frames addition will matter, and 
-        # a metadata specifying the x or y dimension to snap onto will also be necessary, as well as a side (top, left ,rigth , bottom)
-        # will be quite a pain to code I expect... Not a primordial feature for now.
-        
+           
     def get_frame_location(self,index):
         col = 0
         lin = 0
@@ -376,11 +379,11 @@ class VignetteBuilder():
         
     def get_total_duration(self):
         # TODO : use time offset and duration of videos to get the total duration of the video in frames
-        return 100
+        return 1000
         
     def get_time_offset(self,index):
         # use time offset videos to get the absolute positive offset from 0 (requires get_total_duration to  make the  offset positive)
-        offset = self.time_offsets[index] 
+        offset = -self.time_offsets[index] 
     
         # TODO : calculate here the offsets etc
         return offset

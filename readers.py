@@ -120,7 +120,7 @@ class DefaultReader:
         try :
             self._width
         except AttributeError : 
-            shape = self._get_frame(0).shape
+            shape = self.frame(0).shape
             self._height = shape[1]
             self._width = shape[0]
         finally : 
@@ -131,7 +131,7 @@ class DefaultReader:
         try :
             self._height
         except AttributeError : 
-            shape = self._get_frame(0).shape
+            shape = self.frame(0).shape
             self._height = shape[1]
             self._width = shape[0]
         finally : 
