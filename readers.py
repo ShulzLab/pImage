@@ -4,8 +4,6 @@
 import os
 import pyprind
 
-
-
 try :
     import cv2
 except ImportError as e :

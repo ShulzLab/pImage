@@ -146,7 +146,10 @@ class AviWriter(DefaultWriter):
         self.file_handle.release()
 
 class TiffWriter(DefaultWriter):
-    from libtiff import TIFF as tiff_writer
+    try :
+        from libtiff import TIFF as tiff_writer
+    except ImportError as e:
+        tiff_writer = e
     def __init__(self,path,**kwargs):
         self.path =  os.path.dirname(path)
         self.file_prefix = os.path.splitext(os.path.basename(path))[0]

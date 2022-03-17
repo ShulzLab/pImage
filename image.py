@@ -4,16 +4,18 @@ Created on Tue Mar 31 02:12:06 2020
 
 @author: Timothe
 """
-from skimage.draw import line_aa
-from skimage import measure,filters
-from scipy import signal
+
+try :
+    from skimage.draw import line_aa
+    from skimage import measure,filters
+    from scipy import signal
+    from PyQt5.QtWidgets import QDialog, QDialogButtonBox
+except ImportError as e:
+    QDialog = e
 import numpy as np
 import cv2
 import os,sys
-
 from cv2 import VideoWriter, VideoWriter_fourcc
-
-from PyQt5.QtWidgets import QDialog, QDialogButtonBox
 #
 import pyprind
 

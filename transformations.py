@@ -18,7 +18,10 @@ Created on Thu Mar 10 21:58:07 2022
 </div>
 """
 
-from PIL import Image, ImageDraw, ImageFont
+try :
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError as e :
+    pass
 import cv2
 import numpy as np
 import os,sys
