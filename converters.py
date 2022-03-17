@@ -17,7 +17,7 @@ Created on Tue Oct 12 17:34:44 2021
 </div>
 """
 
-from multiprocessing import Pool, Manager
+from multiprocessing import Pool, Manager, TimeoutError
 import sys, time
 from readers import AutoVideoReader
 from writers import AutoVideoWriter
@@ -35,11 +35,14 @@ class StandardConverter:
         self.output_path = output_path
         self.reader_kwargs = kwargs.get("reader",dict())
         self.writer_kwargs = kwargs.get("writer",dict())
+        
+        self.start_frame = kwargs.get("start_frame",None)
+        self.stop_frame = kwargs.get("stop_frame",None)
 
     def start(self):
         with Pool(processes=2) as pool:
 
-            read_process = pool.apply_async(self.read, (AutoVideoReader,self.read_queue,self.message_queue))
+            read_process = pool.apply_async(self.read, (AutoVideoReader,self.read_queue,self.message_queue,self.start_frame,self.stop_frame))
             #transform_process = pool.apply_async(self.transform, (self.kwargs.pop("transform_function",_lambda_transform),self.read_queue,self.transformed_queue,self.message_queue))
             write_process = pool.apply_async(self.write, (AutoVideoWriter,self.read_queue,self.message_queue))
 
@@ -49,9 +52,13 @@ class StandardConverter:
             while True :
                 msg = self.message_queue.get()
                 self.msg_parser(msg)
-                if msg == "End of write process":
+                if "Finished" in msg:
                     break
-        print("\n" + "Conversion done")
+        if "Failed" in msg :
+            print("\n" + "Conversion canceled due to error")
+        else :
+            print("\n" + "Conversion terminated succesfully")
+        
 
     def msg_parser(self,message):
 
@@ -66,41 +73,49 @@ class StandardConverter:
         elif len(message) >= 3 and message[:3] == "End" :
             print("\n" + message, end = '', flush=True)
 
-    def read(self, reader_class, read_queue , message_queue):
-
-        with reader_class(self.input_path, **self.reader_kwargs) as vid_read :
-            message_queue.put("frameno"+str(vid_read.frames_number))
-            for frame in vid_read.frames():
-                read_queue.put(frame)
-                message_queue.put("r")
-        read_queue.put(None)
-        message_queue.put("End of read process")
+    def read(self, reader_class, read_queue , message_queue, start = None, stop = None):
+        try :
+            with reader_class(self.input_path, **self.reader_kwargs) as vid_read :
+                _picky = True
+                if start is None and start is None :
+                    _picky = False
+                if start is None :
+                    start = 0
+                if stop is None :
+                    stop = vid_read.frames_number
+                message_queue.put("frameno"+str(stop-start))
+                
+                if _picky:
+                    for frame_id in range(start,stop):
+                        read_queue.put(vid_read.frame(frame_id))
+                        message_queue.put("r")
+                else :
+                    for frame in vid_read.frames():
+                        read_queue.put(frame)
+                        message_queue.put("r")
+            read_queue.put(None)
+            message_queue.put("Successfull end of read process")
+        except Exception :
+            read_queue.put(None)
+            message_queue.put("Finished - Failed read process")
         sys.stdout.flush()
 
-    # def transform(self, transform_function, read_queue, transformed_queue , message_queue):
-    #     while True :
-    #         frame = read_queue.get()
-    #         if frame is None:
-    #             transformed_queue.put(None)
-    #             break
-    #         message_queue.put("t")
-    #         transformed_queue.put(transform_function(frame))
-    #     message_queue.put("End of transform process")
-    #     sys.stdout.flush()
-
     def write(self,writer_class, read_queue, message_queue):
-        with writer_class(self.output_path, **self.writer_kwargs) as vid_write :
-            while True :
-                frame = read_queue.get()
-                if frame is None:
-                    break
-                message_queue.put("w")
-                vid_write.write(frame)
-        message_queue.put("End of write process")
+        try :
+            with writer_class(self.output_path, **self.writer_kwargs) as vid_write :
+                while True :
+                    frame = read_queue.get()
+                    if frame is None:
+                        break
+                    message_queue.put("w")
+                    vid_write.write(frame)
+            message_queue.put("Finished - Succesfull end of write process")
+        except Exception :
+            message_queue.put("Finished - Failed write process")
         sys.stdout.flush()
 
 if __name__ == "__main__" :
     test = StandardConverter( r"F:\\Timothe\\DATA\\BehavioralVideos\\Whisker_Video\\Whisker_Topview\\Expect_3_mush\\Mouse63\\210521_VSD1\\Mouse63_2021-05-21T16.44.57.avi" ,  
-                             r"C:\Users\Timothe\NasgoyaveOC\Professionnel\TheseUNIC\DevScripts\Python\__packages__\pImage\rotst.avi"
-                             ,reader = {"rotate":1})
+                             r"F:\\rotst.avi"
+                             ,reader = {"rotate":1},start_frame = 300, stop_frame = 400)
     test.start()
