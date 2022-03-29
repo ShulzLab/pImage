@@ -38,7 +38,7 @@ class AutoVideoReader:
 class DefaultReader:
     ############## Methods that needs to be overriden :        
     def __init__(self):
-        pass
+        self.color = False
             
     def _get_frame(self,frame_id):
         raise NotImplementedError
@@ -100,7 +100,7 @@ class DefaultReader:
     def frame(self,frame_id):
         if frame_id < 0 :
             raise ValueError("Cannot get negative frame ids")
-        if frame_id > self.frames_number-1:
+        if self.frames_number is not None and frame_id > self.frames_number-1:
             raise ValueError("Not enough frames in reader")
         return self._get_frame(frame_id)
     
@@ -142,15 +142,19 @@ class DefaultReader:
 class AviReader(DefaultReader):
     #only supports grayscale for now
     
-    def __init__(self,file_path):
+    def __init__(self,file_path,**kwargs):
         super().__init__()
         self.path = file_path 
+        self.color = kwargs.get("color",False)
 
     def open(self):
         try : 
             self.file_handle
         except AttributeError : 
-            self.file_handle = cv2.VideoCapture( self.path ,cv2.IMREAD_GRAYSCALE )
+            if self.color :
+                self.file_handle = cv2.VideoCapture( self.path)# ,cv2.IMREAD_COLOR )
+            else :
+                self.file_handle = cv2.VideoCapture( self.path ,cv2.IMREAD_GRAYSCALE )
         finally :
             return self.file_handle
         #width  = int(Handlevid.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -168,9 +172,10 @@ class AviReader(DefaultReader):
             #that this shitty nonsense way of calulating frame count of opencv
             import ffmpeg
             return int(ffmpeg.probe(self.path)["streams"][0]["nb_frames"])
-        except ImportError :
+        except (ImportError, KeyError) :
             self.open()
-            return int(self.file_handle.get(cv2.CAP_PROP_FRAME_COUNT))
+            frameno = int(self.file_handle.get(cv2.CAP_PROP_FRAME_COUNT))
+            return frameno if frameno > 0 else None
 
     def _get_frame(self, frame_id):
         self.open()
@@ -178,6 +183,8 @@ class AviReader(DefaultReader):
         success , temp_frame = self.file_handle.read()
         if not success:
             raise IOError("end of video file")
+        if self.color :
+            return cv2.cvtColor(temp_frame, cv2.COLOR_BGR2RGB)
         return temp_frame[:,:,0]
     
     def _get_all(self):
@@ -187,8 +194,11 @@ class AviReader(DefaultReader):
             success, temp_frame = self.file_handle.read()
             if not success :
                 break
-            yield temp_frame[:,:,0]
-    
+            if self.color :
+                yield temp_frame
+            else :
+                yield temp_frame[:,:,0]
+                
 if __name__ == "__main__" :
     import matplotlib.pyplot as plt
 

@@ -24,11 +24,12 @@ except ImportError as e :
     pass
 import cv2
 import numpy as np
+import math
 import os,sys
 
 from readers import select_extension_reader
 
-available_transforms = {"rotate","crop","annotate"}
+available_transforms = {"rotate","crop","annotate","resize","brightness","contrast","gamma","clahe","clipLimit","tileGridSize"}
 
 def TransformingReader(path,**kwargs):
 
@@ -36,25 +37,45 @@ def TransformingReader(path,**kwargs):
 
     class TransformingPolymorphicReader(selected_reader_class):
            
-        rotation_amount = kwargs.get("rotate",False)
-        annotate_params = kwargs.get("annotate",False)
-        if kwargs.get("crop",False) :
+        rotation_amount = kwargs.pop("rotate",False)
+        annotate_params = kwargs.pop("annotate",False)
+        crop_params = kwargs.pop("crop",False)
+        resize = kwargs.pop("resize",False)
+        brightness = kwargs.pop("brightness",0)
+        contrast = kwargs.pop("contrast",1)
+        brightness_contrast = False if brightness == 0 and contrast == 1 else True
+        gamma = kwargs.pop("gamma",None)
+        inv_gamma = kwargs.pop("inv_gamma",True)
+        clahe = kwargs.pop("clahe",False)
+        if clahe or "clipLimit" in kwargs.keys() or "tileGridSize" in kwargs.keys():
+            clahe = cv2.createCLAHE(kwargs.pop("clipLimit",8),kwargs.pop("tileGridSize",(5,5)))
+        if crop_params :
             try :
-                crop_params = make_crop_params(**kwargs.get("crop")) 
+                crop_params = make_crop_params(**crop_params) 
             except TypeError:
-                crop_params = make_crop_params(*kwargs.get("crop")) 
-        else :
-            crop_params = False
-        
-        
+                crop_params = make_crop_params(*crop_params)
                 
         def _transform_frame(self,frame):
             if self.crop_params :
                 frame = crop(frame,*self.crop_params)
             if self.rotation_amount :
-                frame = np.rot90(frame,self.rotation_amount)
+                frame = np.rot90(frame,self.rotation_amount,axes=(0, 1))
+            if self.resize :
+                frame = cv2.resize(frame, (int(frame.shape[1]*self.resize), int(frame.shape[0]*self.resize)), interpolation = cv2.INTER_AREA)
+            if self.clahe :
+                try :
+                    frame = self.clahe.apply(frame)
+                except :
+                    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+                    lab[:,:,0] = self.clahe.apply(lab[:,:,0])
+                    frame = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+            if self.brightness_contrast :
+                frame = image_contrast_brightness(frame,self.contrast,self.brightness)
+            if self.gamma is not None :
+                frame = image_gamma(frame,self.gamma,self.inv_gamma)
             if self.annotate_params :
-                frame = annotate_image(frame, self.annotate_params["text"], **self.annotate_params["params"]) 
+                frame = annotate_image(frame, self.annotate_params["text"], **self.annotate_params["params"])
+            
             return frame
             
         def frames(self):
@@ -72,7 +93,7 @@ def TransformingReader(path,**kwargs):
             #         return (_shape[1], _shape[0] , _shape[2])
             #     return _shape
                 
-    return TransformingPolymorphicReader(path)
+    return TransformingPolymorphicReader(path,**kwargs)
 
 def array_gray_to_color( input_array , **kwargs ):
     """
@@ -150,6 +171,50 @@ def make_crop_params(*args,**kwargs):
 def crop(array,*args,**kwargs):
     values = make_crop_params(*args,**kwargs)
     return array[values[0]:array.shape[0]-values[1],values[2]:array.shape[1]-values[3]]
+
+def image_contrast_brightness(array,alpha,beta):
+    #alpha = contrast, beta = brightness
+    return (np.clip(( array.astype(np.int16) * alpha ) + beta, a_min = 0, a_max = 255)).astype(np.uint8)
+
+def image_gamma(array,gamma,inv= True):
+    return apply_lut(array, gamma_lut(gamma,inv))
+
+def image_curve(array,slope,shift):
+    return apply_lut(array, curve_lut(slope,shift))
+
+def image_clahe(array,clahe= None,clipLimit = 8, tileGridSize = (5,5) ):
+    if clahe is None :
+        clahe = cv2.createCLAHE(clipLimit = clipLimit, tileGridSize = tileGridSize)
+    return clahe.apply(array)
+    
+def apply_lut(array, lut):
+    return np.take(lut,array)
+    
+def gamma_lut(gamma,inv_gamma = True):
+    if inv_gamma : 
+        gamma = 1.0 / gamma
+    table = np.array([((i / 255.0) ** gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+    return table
+
+def curve_lut(slope=1,shift=0):
+    return [constrain(to_uint(math.erf(i*slope))+shift) for i in np.linspace(-1,1,256)]
+
+def to_uint(value):#-1 - 1 to 0 - 255
+    return int((value + 1) * (255/2))
+
+def to_norm(value):#0-255 to -1 - 1
+    return int((value - (255/2))/ (255/2))
+
+def constrain(value, mini = 0 , maxi = 255):
+    if mini < value < maxi :
+        return value
+    if value < mini :
+        return mini
+    else :
+        return maxi
+    
+
+
 
 if __name__ == "__main__" :
     import matplotlib.pyplot as plt

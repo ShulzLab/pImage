@@ -174,7 +174,7 @@ class vignette_object():
         elif self.type == "array" :
             shape =  self.object.shape
             return (shape[2],shape[0],shape[1])
-        elif self.type == "reader"  :
+        elif self.type == "reader"  :                
             shape =  self.object.shape
             return (shape[2],shape[0],shape[1])
         elif self.type == "builder" :
@@ -195,8 +195,10 @@ class vignette_object():
             return self.object[:,:,frame_id]
         elif self.type == "reader" :
             if 0 > frame_id or frame_id > self.object.frames_number - 1 :
-                return np.ones((self.object.height,self.object.width,3),dtype = np.uint8)  * self.parent.bg_color
+                return np.ones((self.object.width,self.object.height,3),dtype = np.uint8)  * self.parent.bg_color
             #only BW readers for now
+            if self.object.color is True :
+                return self.object[:,:,frame_id]
             return np.repeat(self.object[:,:,frame_id][:,:,np.newaxis], 3, axis = 2)
         elif self.type == "builder" :
             if 0 > frame_id or frame_id > self.object.get_total_duration() :
@@ -206,26 +208,44 @@ class vignette_object():
     def close(self):
         if self.type == "memap" :
             self.object.close()
+            
+    def __str__(self):
+        return super().__str__() + " Type :" + self.type
+    
+    def __repr__(self):
+        return self.__str__()
 
+
+def dummy_patch_processor(vignette_builder,patch):
+    return patch
+    
 class VignetteBuilder():
         
     def __init__(self,target_aspect_ratio = 16/9,maxdim = 1000,**kwargs) :
         self.v_objects = []
         self.time_offsets = []
+        self.post_transforms = []
         self.target_aspect_ratio = target_aspect_ratio
-        self.border = 0
-        self.padding = 0
         self.maxwidth = self.maxheight = maxdim
+        self.border = kwargs.get("border",0)
+        self.padding = kwargs.get("padding",0)
         self.bg_color = kwargs.get("bg_color",0)
+        self.fit_to(kwargs.get("fit_to",0))
+        self.set_first_object(kwargs.get("first_object",0))
+        self.resize_algorithm = kwargs.get("resize_algorithm",cv2.INTER_AREA)
         self._layout_ready = False
-        
+        self._duration_ready = False
+
+          
     def add_video(self,_object,**kwargs):
         self.time_offsets.append( kwargs.pop("time_offset",0))
+        self.post_transforms.append(kwargs.pop("transform_func", dummy_patch_processor ))
         memmapping = kwargs.pop("memmap_mode", False)
         if memmapping and isinstance(_object,np.ndarray):
             _object = array_video_color(_object,**kwargs)
         self.v_objects.append( vignette_object(_object, self))
         self._layout_ready = False
+        self._duration_ready = False
         #self.v_objects[-1].object.flush()
         
     def add_border(self,width):
@@ -246,7 +266,7 @@ class VignetteBuilder():
     
     def set_layout(self, layout_style, *args ):
         self.layout = layout_style
-        self.get_layout_factory()(*args)
+        self.layout_args = args
         self._layout_ready = False
 
     def _apply_grid_layout(self,*args):
@@ -266,7 +286,7 @@ class VignetteBuilder():
         
     def _apply_snappy_layout(self,alignment = "hori",*args):
         if len(self.v_objects) > 2:
-            raise ValueError("Cannot snap more than two objects for now")
+            raise ValueError("Cannot snap more than two objects with one vignette builder in current developpement state. Simply nest builders to achieve the desired number of snapped images.")
             
         if alignment == "hori" or alignment == "horizontal" :
             self.lines = 1
@@ -275,13 +295,21 @@ class VignetteBuilder():
         if alignment == "vert" or alignment == "vertical" :
             self.lines = 2
             self.columns = 1
+                   
             
-        self.layout = "snappy"
-           
+    def fit_to(self,index = 0):
+        self._fit_to = index
+        self._layout_ready = False
+        
+    def set_first_object(self,index = 0):
+        self._f_o = index #first_object
+        self._layout_ready = False 
+        
     def get_frame_location(self,index):
         col = 0
         lin = 0
-        for i in range(len(self.v_objects)):
+        irange = range(len(self.v_objects)-1,-1,-1) if self.layout == "snappy" and self._f_o else range(len(self.v_objects))
+        for i in irange:
             if index == i :
                 break
             col = col + 1
@@ -299,25 +327,26 @@ class VignetteBuilder():
     def _create_snappy_bg(self):
         # object 1 shape does not change
         # self.frameheight and self.framewidth are destined to object 2
+        adjust_index = self._fit_to 
         if self.lines == 1 :
-            real_height = self.v_objects[0].shape[1]
+            real_height = self.v_objects[adjust_index].shape[1]
             self.frameheight =  real_height #if real_height <= self.maxheight else self.maxheight
             # TODO : change ability to fix a dimension for snappy later.
-            scale_multipler = self.frameheight / self.v_objects[1].shape[1] 
-            self.framewidth = math.ceil( scale_multipler * self.v_objects[1].shape[2])
+            scale_multipler = self.frameheight / self.v_objects[not adjust_index].shape[1] 
+            self.framewidth = math.ceil( scale_multipler * self.v_objects[not adjust_index].shape[2])
             
             self.background_height = self.frameheight
-            self.background_width = self.framewidth + self.v_objects[0].shape[2]
+            self.background_width = self.framewidth + self.v_objects[adjust_index].shape[2]
             
         elif self.columns == 1 :
-            real_width = self.v_objects[0].shape[2]
+            real_width = self.v_objects[adjust_index].shape[2]
             self.framewidth =  real_width# if real_width <= self.maxwidth else self.maxwidth
             # TODO : change ability to fix a dimension for snappy later.
-            scale_multipler = self.framewidth / self.v_objects[1].shape[2] 
-            self.frameheight = math.ceil( scale_multipler * self.v_objects[1].shape[1])
+            scale_multipler = self.framewidth / self.v_objects[not adjust_index].shape[2] 
+            self.frameheight = math.ceil( scale_multipler * self.v_objects[not adjust_index].shape[1])
         
             self.background_width = self.framewidth
-            self.background_height = self.frameheight + self.v_objects[0].shape[1]
+            self.background_height = self.frameheight + self.v_objects[adjust_index].shape[1]
         
         else :
             raise ValueError("At least one dimension must be equal to 1")
@@ -374,19 +403,25 @@ class VignetteBuilder():
             
     def get_background(self):
         if not self._layout_ready:
+            self.get_layout_factory()(*self.layout_args)
             self.get_background_factory()()
         return np.ones((self.background_height,self.background_width,3),dtype = np.uint8) * self.bg_color
         
-    def get_total_duration(self):
-        # TODO : use time offset and duration of videos to get the total duration of the video in frames
-        return 1000
-        
-    def get_time_offset(self,index):
-        # use time offset videos to get the absolute positive offset from 0 (requires get_total_duration to  make the  offset positive)
-        offset = -self.time_offsets[index] 
+    def _calculate_time_offsets(self):
+        min_value = min(self.time_offsets)
+        self._positive_offsets = [offset + min_value for offset in self.time_offsets]
+        videos_ends = [self.v_objects[i].shape[0] + self._positive_offsets[i] for i in range(len(self.v_objects))]
+        self._total_duration = max(videos_ends)
     
-        # TODO : calculate here the offsets etc
-        return offset
+    def get_total_duration(self):
+        if self._duration_ready == False :
+            self._calculate_time_offsets()
+        return self._total_duration
+                
+    def get_time_offset(self,index):
+        if self._duration_ready == False :
+            self._calculate_time_offsets()
+        return -self._positive_offsets[index] 
         
     def frames(self):
         total_time = self.get_total_duration()
@@ -394,30 +429,42 @@ class VignetteBuilder():
             yield self.frame(time_index)
         
     def _snappy_frame_getter(self,frame,index): 
-         
+        f_o = self._f_o #first_object
         x , y = self.frames_xorigin , self.frames_yorigin
-        ex,ey = x + self.v_objects[0].shape[1] , y + self.v_objects[0].shape[2]
-        frame[x:ex,y:ey,:] = self.v_objects[0].get_frame(index+self.get_time_offset(0))
+        if not self._fit_to == f_o :
+            patch = cv2.resize(self.v_objects[f_o].get_frame(index+self.get_time_offset(f_o)), ( self.framewidth, self.frameheight), interpolation = self.resize_algorithm)    
+        else :
+            patch =  self.v_objects[f_o].get_frame(index+self.get_time_offset(f_o))
+        ex,ey = x + patch.shape[0] , y + patch.shape[1]
+        frame[x:ex,y:ey,:] = self._process_patch(patch,f_o)
         
-        col,lin = self.get_frame_location(1)
-        x2 = x + (self.v_objects[0].shape[1]*(lin)) + (lin * self.padding) 
-        y2 = y + (self.v_objects[0].shape[2]*(col)) + (col * self.padding) 
-        ex2 , ey2 = x2 + self.frameheight, y2 + self.framewidth
-        
-        frame[x2:ex2,y2:ey2,:] = cv2.resize(self.v_objects[1].get_frame(index+self.get_time_offset(1)), ( self.framewidth, self.frameheight), interpolation = cv2.INTER_AREA)
+        col,lin = self.get_frame_location(not f_o)
+        x2 = x + (patch.shape[0]*(lin)) + (lin * self.padding) 
+        y2 = y + (patch.shape[1]*(col)) + (col * self.padding) 
+    
+        if self._fit_to == f_o :
+            patch = cv2.resize(self.v_objects[not f_o].get_frame(index+self.get_time_offset(not f_o)), ( self.framewidth, self.frameheight), interpolation = self.resize_algorithm)
+        else :
+            patch =  self.v_objects[not f_o].get_frame(index+self.get_time_offset(not f_o))
+        ex2 , ey2 = x2 + patch.shape[0], y2 + patch.shape[1]
+            
+        frame[x2:ex2,y2:ey2,:] = self._process_patch(patch,not f_o)
         return frame
     
+    def _process_patch(self,patch,index):
+         return self.post_transforms[index](self,patch) 
+    
     def _grid_frame_getter(self,frame,index):
-        
         resize_arrays = []
         for i in range(len( self.v_objects )):
             time_offset = self.get_time_offset(i)
             _fullsizevig = self.v_objects[i].get_frame(index+time_offset)
-            resize_arrays.append(cv2.resize(_fullsizevig, (self.framewidth, self.frameheight), interpolation = cv2.INTER_AREA))
+            resize_arrays.append(cv2.resize(_fullsizevig, (self.framewidth, self.frameheight), interpolation = self.resize_algorithm))
         
         for i in range(len( resize_arrays )):
             x,y,ex,ey = self.get_frame_ccordinates(i)
-            frame[x:ex,y:ey,:] = resize_arrays[i]
+            patch = self._process_patch(resize_arrays[i],index)
+            frame[x:ex,y:ey,:] = patch 
         return frame
         
     def frame(self,index):
