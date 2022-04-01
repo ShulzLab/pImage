@@ -226,7 +226,7 @@ class VignetteBuilder():
         self.time_offsets = []
         self.post_transforms = []
         self.target_aspect_ratio = target_aspect_ratio
-        self.maxwidth = self.maxheight = maxdim
+        self.set_max_size(maxdim)
         self.border = kwargs.get("border",0)
         self.padding = kwargs.get("padding",0)
         self.bg_color = kwargs.get("bg_color",0)
@@ -236,7 +236,10 @@ class VignetteBuilder():
         self._layout_ready = False
         self._duration_ready = False
 
-          
+    def set_max_size(self, size):
+        self.maxwidth = self.maxheight = size
+        self._layout_ready = False
+
     def add_video(self,_object,**kwargs):
         self.time_offsets.append( kwargs.pop("time_offset",0))
         self.post_transforms.append(kwargs.pop("transform_func", dummy_patch_processor ))
@@ -394,6 +397,8 @@ class VignetteBuilder():
         self.frames_yorigin = self.frames_yorigin + self.border
         
     def get_background_factory(self):
+        self.get_layout_factory()(*self.layout_args)
+        
         if self.layout == "snappy" :
             return self._create_snappy_bg
         elif self.layout == "grid" :
@@ -403,7 +408,6 @@ class VignetteBuilder():
             
     def get_background(self):
         if not self._layout_ready:
-            self.get_layout_factory()(*self.layout_args)
             self.get_background_factory()()
         return np.ones((self.background_height,self.background_width,3),dtype = np.uint8) * self.bg_color
         
@@ -463,7 +467,7 @@ class VignetteBuilder():
         
         for i in range(len( resize_arrays )):
             x,y,ex,ey = self.get_frame_ccordinates(i)
-            patch = self._process_patch(resize_arrays[i],index)
+            patch = self._process_patch(resize_arrays[i],i)
             frame[x:ex,y:ey,:] = patch 
         return frame
         
