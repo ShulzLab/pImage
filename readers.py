@@ -195,7 +195,7 @@ class AviReader(DefaultReader):
             if not success :
                 break
             if self.color :
-                yield temp_frame
+                yield cv2.cvtColor(temp_frame, cv2.COLOR_BGR2RGB)
             else :
                 yield temp_frame[:,:,0]
                 

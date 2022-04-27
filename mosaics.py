@@ -164,6 +164,7 @@ class vignette_object():
             self.type = "reader"
         elif isinstance(_object,VignetteBuilder):
             self.type = "builder"
+        self.static_mode = False
         self.object = _object
         self.parent = parent
             
@@ -182,6 +183,8 @@ class vignette_object():
                 self.object.get_background_factory()()
             return (self.object.get_total_duration(),self.object.background_height,self.object.background_width)
         
+    def set_static(self,static_mode):
+        self.static_mode = static_mode
         
     def get_frame(self,frame_id):
         if self.type == "memap" :
@@ -189,8 +192,9 @@ class vignette_object():
                 return np.ones((self.object.shape[1],self.object.shape[2],3),dtype = np.uint8) * self.parent.bg_color
             return self.object[frame_id]
         elif self.type == "array" :
+            if self.static_mode :
+                return self.object[:,:,0]
             if 0 > frame_id or frame_id >= self.object.shape[2] :
-        
                 return np.ones((self.object.shape[0],self.object.shape[1],3),dtype = np.uint8)  * self.parent.bg_color
             return self.object[:,:,frame_id]
         elif self.type == "reader" :
@@ -241,12 +245,68 @@ class VignetteBuilder():
         self._layout_ready = False
 
     def add_video(self,_object,**kwargs):
+        """
+        Add a video to create a mosaic. Order of addition matters for grid layout. It can be tuned for snappy layout 
+        (if snappy = only 2 videos, no more, no less. One can create snappy layouts with more than 2 videos by stacking builders, see tutorial)
+        
+        Args:
+            _object (TYPE): input.
+              Takes as input :
+                - any DefaultReader child classes (works with color or black&white inputs)
+                - a numpy array. By default, must be a color array with time dimension.
+                   Hence, dimensions must be 4, and in this specific order :
+                    0 : x
+                    1 : y
+                    2 : time
+                    3 : color 
+                    One can also specify other array types , and provide kwarg ``array_mode`` with a certain flag string.
+                    flags can be :
+                        - np_bwt : expects blackwhite image with time 
+                            3d array, dimensions as follow : 
+                            0 : x
+                            1 : y
+                            2 : time
+                        - np_bw : expects blackwhite image with no time
+                            2D array, dimensions as follow : 
+                            0 : x
+                            1 : y
+                        - np_col : expects color image with no time
+                            3d array, dimensions as follow : 
+                            0 : x
+                            1 : y
+                            2 : color
+                            
+                        Last two np_bw and np_col will create static images, 
+                        that won't change across frames indices are called in the builder.
+                - another builder. It will feed it's frames to the child builder only when asked to build them. 
+                  Can be stacked as many times as RAM allows.
+            **kwargs (TYPE): DESCRIPTION.
+
+        Returns:
+            None.
+
+        """
+        set_static = False
+        array_mode =  kwargs.pop("array_mode",None)
+        if array_mode == "np_bwt" :#create color dimension from blackwhite image with time 
+            _object = np.repeat( _object[:,:,:,np.newaxis] , 3, axis = 3 )
+        if array_mode =="np_bw" : #create time then color dimension from blackwhite image with no time (only 2 frames)
+            _object = np.repeat( _object[:,:,np.newaxis] , 2 , axis = 2  )
+            _object = np.repeat( _object[:,:,:,np.newaxis] , 3 , axis = 3  )
+            set_static = True
+        if array_mode =="np_col" : #create time dimension from color image with no time (only 2 frames)
+            _object = np.repeat( _object[:,:,np.newaxis,:] , 2, axis = 2 )
+            set_static = True
+            
         self.time_offsets.append( kwargs.pop("time_offset",0))
         self.post_transforms.append(kwargs.pop("transform_func", dummy_patch_processor ))
         memmapping = kwargs.pop("memmap_mode", False)
         if memmapping and isinstance(_object,np.ndarray):
             _object = array_video_color(_object,**kwargs)
-        self.v_objects.append( vignette_object(_object, self))
+        vobj = vignette_object(_object, self)
+        if set_static :
+            vobj.set_static(True)
+        self.v_objects.append(vobj )
         self._layout_ready = False
         self._duration_ready = False
         #self.v_objects[-1].object.flush()

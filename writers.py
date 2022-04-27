@@ -27,6 +27,8 @@ def select_extension_writer(file_path):
         return AviWriter
     if os.path.splitext(file_path)[1] == ".tiff" :
         return TiffWriter
+    if os.path.splitext(file_path)[1] == ".gif" :
+        return GifFWriter
     else :
         raise NotImplementedError("File extension/CODEC not supported yet")
 
@@ -170,6 +172,39 @@ class TiffWriter(DefaultWriter):
 
 
 
+class GifFWriter(DefaultWriter):
+    
+    def __init__(self,path,**kwargs):
+        self.path = path
+        self.frame_bank = []
+        self.seamless = kwargs.get("seamless",False)
+        self.frameduration = 1000/kwargs.get("framerate",33.3)
+        self.optimize =  kwargs.get("optimize",True)
+        self.infinite = kwargs.get("infinite",True)
+        
+    def _write_frame(self,array):
+        from PIL import Image as pillow_image
+        self.frame_bank.append(pillow_image.fromarray(array))
+
+    def flush(self):
+        start = 0
+        stop = len(self.frame_bank)
+        img0 = self.frame_bank[start]
+        if self.seamless :
+            rest_of_imgs = self.frame_bank[start+1:stop]+self.frame_bank[stop:start:-1]
+        else :
+            rest_of_imgs = self.frame_bank[start+1:stop]
+        
+        img0.save(self.path, 
+            save_all = True, 
+            append_images=rest_of_imgs,
+            duration=self.frameduration, 
+            loop=self.infinite, 
+            optimize = self.optimize)
+
+    def close(self):
+        self.flush()
+        
 
 
 
