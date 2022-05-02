@@ -225,13 +225,13 @@ def dummy_patch_processor(vignette_builder,patch):
     
 class VignetteBuilder():
         
-    def __init__(self,target_aspect_ratio = 16/9,maxdim = 1000,**kwargs) :
+    def __init__(self,target_aspect_ratio = 16/9,max_size = 1000,**kwargs) :
         self.v_objects = []
         self.time_offsets = []
         self.sampling_rate_multipliers = []
         self.post_transforms = []
         self.target_aspect_ratio = target_aspect_ratio
-        self.set_max_size(maxdim)
+        self.set_max_size(max_size)
         self.border = kwargs.get("border",0)
         self.padding = kwargs.get("padding",0)
         self.bg_color = kwargs.get("bg_color",0)
@@ -501,16 +501,16 @@ class VignetteBuilder():
         for time_index in range(total_time):
             yield self.frame(time_index)
             
-    def _get_frame(self,object_index,frame_index):
+    def _get_object_frame(self,object_index,frame_index):
         return self.v_objects[object_index].get_frame(self.get_frame_time_index(object_index,frame_index))
         
     def _snappy_frame_getter(self,frame,index): 
         f_o = self._f_o #first_object
         x , y = self.frames_xorigin , self.frames_yorigin
         if not self._fit_to == f_o :
-            patch = cv2.resize(self._get_frame(f_o,index), ( self.framewidth, self.frameheight), interpolation = self.resize_algorithm)    
+            patch = cv2.resize(self._get_object_frame(f_o,index), ( self.framewidth, self.frameheight), interpolation = self.resize_algorithm)    
         else :
-            patch =  self._get_frame(f_o,index)
+            patch =  self._get_object_frame(f_o,index)
         ex,ey = x + patch.shape[0] , y + patch.shape[1]
         frame[x:ex,y:ey,:] = self._process_patch(patch,f_o)
         
@@ -519,9 +519,9 @@ class VignetteBuilder():
         y2 = y + (patch.shape[1]*(col)) + (col * self.padding) 
     
         if self._fit_to == f_o :
-            patch = cv2.resize(self._get_frame(not f_o,index), ( self.framewidth, self.frameheight), interpolation = self.resize_algorithm)
+            patch = cv2.resize(self._get_object_frame(not f_o,index), ( self.framewidth, self.frameheight), interpolation = self.resize_algorithm)
         else :
-            patch = self._get_frame(not f_o,index)
+            patch = self._get_object_frame(not f_o,index)
         ex2 , ey2 = x2 + patch.shape[0], y2 + patch.shape[1]
             
         frame[x2:ex2,y2:ey2,:] = self._process_patch(patch,not f_o)
@@ -533,7 +533,7 @@ class VignetteBuilder():
     def _grid_frame_getter(self,frame,index):
         resize_arrays = []
         for i in range(len( self.v_objects )):
-            _fullsizevig = self._get_frame(i,index)
+            _fullsizevig = self._get_object_frame(i,index)
             resize_arrays.append(cv2.resize(_fullsizevig, (self.framewidth, self.frameheight), interpolation = self.resize_algorithm))
         
         for i in range(len( resize_arrays )):
@@ -559,7 +559,7 @@ class VignetteBuilder():
                 
 # possibnle optimisations : order of indexes in memaps , the select index (time) should be first maybe for faster access : answer, yes it does
 # pillow SIMD resize ? https://github.com/uploadcare/pillow-simd
-# and possibli, instead of resizing each image then writing in inside the background, maybe write each inside a full size background 
+# and possibly, instead of resizing each image then writing in inside the background, maybe write each inside a full size background 
 # and resize once to the desires background final shape... 
         
 #%% Main test
