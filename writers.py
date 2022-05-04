@@ -35,14 +35,14 @@ def select_extension_writer(file_path):
 
 class AutoVideoWriter:
     
-    def __new__(cls,path):
+    def __new__(cls,path,**kwargs):
         selected_writer_class = select_extension_writer(path)
-        return selected_writer_class(path)
+        return selected_writer_class(path,**kwargs)
 
 class DefaultWriter:
     
     ############## Methods that needs to be overriden :      
-    def __init__(self):
+    def __init__(self,**kwargs):
         pass
     
     def _write_frame(self,array):
@@ -116,7 +116,7 @@ class AviWriter(DefaultWriter):
             os.makedirs(os.path.split(path)[0])
 
         self.path = path
-        self.rgbconv = kwargs.get("rgbconv",None)
+        self.rgbconv = kwargs.get("rgbconv","RGB2BGR")
         # /!\ : if data from matplotlib exported arrays : color layers are not right
         #necessary to add parameter  rgbconv = "RGB2BGR"
 
@@ -129,7 +129,7 @@ class AviWriter(DefaultWriter):
         self.file_handle = None
         
     def _write_frame(self,array):
-
+        import cv2
         if self.file_handle is None :
             self.size = np.shape(array)[1], np.shape(array)[0]
             self.file_handle = VideoWriter(self.path, self.fourcc, self.fps, self.size, True)#color is always True because...
