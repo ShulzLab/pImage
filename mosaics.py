@@ -5,15 +5,15 @@ import cv2
 
 import warnings
 
-import winerror
-import win32api
-import win32job
+
+
 
 import readers
 
 g_hjob = None
 
 def create_job(job_name='', breakaway='silent'):
+    import win32job
     hjob = win32job.CreateJobObject(None, job_name)
     if breakaway:
         info = win32job.QueryInformationJobObject(hjob,
@@ -29,6 +29,7 @@ def create_job(job_name='', breakaway='silent'):
     return hjob
 
 def assign_job(hjob):
+    import win32api, win32job, winerror
     global g_hjob
     hprocess = win32api.GetCurrentProcess()
     try:
@@ -43,14 +44,13 @@ def assign_job(hjob):
             'supported prior to Windows 8.')
 
 def limit_memory(memory_limit):
+    import win32job
     if g_hjob is None:
         return
     info = win32job.QueryInformationJobObject(g_hjob, win32job.JobObjectExtendedLimitInformation)
     info['ProcessMemoryLimit'] = memory_limit
     info['BasicLimitInformation']['LimitFlags'] |= (win32job.JOB_OBJECT_LIMIT_PROCESS_MEMORY)
     win32job.SetInformationJobObject(g_hjob, win32job.JobObjectExtendedLimitInformation, info)
-
-
 
 class memarray(np.memmap):
     def __new__(cls, input_array,**kwargs):
@@ -144,13 +144,13 @@ class array_video_color(memarray):
         memobj._max_time = max_time
         return memobj
     
-    
-try :
-    _pass_memset
-except NameError:
-    assign_job(create_job())
-    limit_memory(10000 * 1024 * 1024) #10GB memory Max
-    _pass_memset = None
+#### THIS  IS PROBABLY THE RESPONSIBLE PART FOR BOTH CUDA INCOMPATIBILITIES AND MAX COMPUTER CRASHES...
+# try :
+#     _pass_memset
+# except NameError:
+#     assign_job(create_job())
+#     limit_memory(10000 * 1024 * 1024) #10GB memory Max
+#     _pass_memset = None
     
     
 class vignette_object():

@@ -8,37 +8,50 @@ try :
     import cv2
 except ImportError as e :
     cv2 = e
-
         
-def select_extension_reader(file_path):
-    import hiris
-    if os.path.splitext(file_path)[1] == ".seq" :
-        if isinstance(hiris, ImportError) :
+def _readers_factory(file_path,**kwargs):
+    use_ffmpeg = kwargs.get("use_ffmpeg",False)
+    extension = os.path.splitext(file_path)[1]
+    if use_ffmpeg :
+        base = FFmpegReader
+    else :
+        base = OpenCVReader
+    if extension == ".seq" :
+        try :
+            import hiris
+            return hiris.HirisReader
+        except ImportError :
             raise hiris("hiris.py not available in library folder")
-        return hiris.HirisReader
-    elif os.path.splitext(file_path)[1] in (".avi",".mp4") :
-        if isinstance(cv2, ImportError) :
-            raise cv2("OpenCV2 cannot be imported sucessfully of is not installed")
+    elif extension == ".avi" :
+        class AviReader(base):
+            pass
+        return AviReader
+    elif extension == ".mp4" :
+        class MP4Reader(base):
+            pass
         return AviReader
     else :
-        raise NotImplementedError("File extension/CODEC not supported yet")
-
+        class UnknownReader(base):
+            pass
+        return UnknownReader
+        #raise NotImplementedError("File extension/CODEC not supported yet")
 
 class AutoVideoReader:
-    #do not inherit from this class. It only returns other classes factories. 
-    #You should inherit from what it yields instead
-    def __new__(cls,path,**kwargs):
-        from transformations import TransformingReader, available_transforms
-            
-        if set(kwargs.keys()).intersection(available_transforms) :
-            return TransformingReader(path,**kwargs)
-        selected_reader_class = select_extension_reader(path)
-        return selected_reader_class(path,**kwargs)
+  #do not inherit from this class. It only returns other classes factories. 
+  #You should inherit from what it yields instead
+  def __new__(cls,path,**kwargs):
+      from transformations import TransformingReader, available_transforms
+          
+      if set(kwargs.keys()).intersection(available_transforms) :
+          return TransformingReader(path,**kwargs)
+      selected_reader_class = _readers_factory(path,**kwargs)
+      return selected_reader_class(path,**kwargs)
 
 class DefaultReader:
     ############## Methods that needs to be overriden :        
-    def __init__(self):
-        self.color = False
+    def __init__(self,file_path,**kwargs):
+        self.path = file_path
+        self.color = kwargs.get("color",False)
             
     def _get_frame(self,frame_id):
         raise NotImplementedError
@@ -139,17 +152,17 @@ class DefaultReader:
     def shape(self):
         return (self.width, self.height , self.frames_number)
                 
-class AviReader(DefaultReader):
-    #only supports grayscale for now
     
-    def __init__(self,file_path,**kwargs):
-        super().__init__()
-        self.path = file_path 
-        self.color = kwargs.get("color",False)
-
+class OpenCVReader(DefaultReader):
+    
+    def __init__(self,path,**kwargs):
+        if isinstance(cv2, ImportError) :
+            raise ImportError("OpenCV2 cannot be imported sucessfully or is not installed")
+        super().__init__(path,**kwargs)
+    
     def open(self):
         try : 
-            self.file_handle
+            return self.file_handle
         except AttributeError : 
             if self.color :
                 self.file_handle = cv2.VideoCapture( self.path)# ,cv2.IMREAD_COLOR )
@@ -157,32 +170,24 @@ class AviReader(DefaultReader):
                 self.file_handle = cv2.VideoCapture( self.path ,cv2.IMREAD_GRAYSCALE )
         finally :
             return self.file_handle
-        #width  = int(Handlevid.get(cv2.CAP_PROP_FRAME_WIDTH))
-        #height = int(Handlevid.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
+        
     def close(self):
         try :
             self.file_handle.release()
         except AttributeError:
             pass
-
+        
     def _get_frames_number(self):
-
-        try :#try with ffmpeg if imported, as it showed more accurate results 
-            #that this shitty nonsense way of calulating frame count of opencv
-            import ffmpeg
-            return int(ffmpeg.probe(self.path)["streams"][0]["nb_frames"])
-        except (ImportError, KeyError) :
-            self.open()
-            frameno = int(self.file_handle.get(cv2.CAP_PROP_FRAME_COUNT))
-            return frameno if frameno > 0 else None
-
+        self.open()
+        frameno = int(self.file_handle.get(cv2.CAP_PROP_FRAME_COUNT))
+        return frameno if frameno > 0 else None
+    
     def _get_frame(self, frame_id):
         self.open()
         self.file_handle.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
         success , temp_frame = self.file_handle.read()
         if not success:
-            raise IOError("end of video file")
+            raise IOError("out of the frames available for this file")
         if self.color :
             return cv2.cvtColor(temp_frame, cv2.COLOR_BGR2RGB)
         return temp_frame[:,:,0]
@@ -198,7 +203,68 @@ class AviReader(DefaultReader):
                 yield cv2.cvtColor(temp_frame, cv2.COLOR_BGR2RGB)
             else :
                 yield temp_frame[:,:,0]
-                
+        
+class FFmpegReader(DefaultReader):   
+    
+    import numpy
+    try : 
+        import ffmpeg
+    except : 
+        raise ImportError("FFMPEG cannot be imported sucessfully or is not installed")
+    #THis reader is based on video time  (based on framerate and ffmped seek)
+    #It is usefull for long videos that are somewhat currupted in the sense that opencv reader
+    #dont' get all  the frames with cv2.CAP_PROP_FRAME_COUNT and you wish to access a part of 
+    #the video that lie beyond this point in the video.
+    
+    def __init__(self,path,**kwargs):
+        
+        super().__init__(path,**kwargs)
+        self.pix_fmt = kwargs.get("pix_fmt",'gray')
+    
+    def get_framerate(self):
+        return float(self.ffmpeg.probe(self.path)["streams"][0]["r_frame_rate"].split('/')[0])
+    
+    def _get_time_from_frameno(self,frame_no):
+        import datetime
+        return str(datetime.timedelta(seconds= frame_no / self.get_framerate()))
+    
+    def _get_frameno_from_time(self,time_str):
+        #imprecise at the number of frames per second
+        import datetime
+        frame_seconds = datetime.datetime.strptime(time_str,'%H:%M:%S') - datetime.datetime(1900, 1, 1).total_seconds()
+        return int(frame_seconds * self.get_framerate())
+    
+    def _get_height_ffmpeg(self):
+        return self.ffmpeg.probe(self.path)["streams"][0]["height"]
+    
+    def _get_width_ffmpeg(self):
+        return self.ffmpeg.probe(self.path)["streams"][0]["width"]
+    
+    def _get_frames_number(self):
+        return self.numpy.inf
+    
+    def sequence(self,start,stop):
+        #In str format: 'HH:MM:SS'
+        if isinstance(start,int):
+            start = self._get_time_from_frameno(start)
+        if isinstance(stop,str):
+            frame_no = self._get_frameno_from_time(stop)
+            frame_nb = frame_no - self._get_frameno_from_time(start)
+        else :
+            frame_nb = stop
+        print(start)
+        width, height = self._get_width_ffmpeg(), self._get_height_ffmpeg()
+        buffer, _ = self.ffmpeg.input(self.path,ss=start).filter('scale', width, -1).output('pipe:', format='rawvideo', pix_fmt=self.pix_fmt, vframes=frame_nb).run(capture_stdout=True, capture_stderr=True)
+        frames = self.numpy.frombuffer(buffer, self.numpy.uint8).reshape(frame_nb, height, width)
+        for frame_index in range(frames.shape[0]) :
+            yield frames[frame_index]        
+                    
+    def _get_frame(self, frame_id):
+        return next(self.sequence(frame_id,1))
+    
+    def _get_all(self):
+        raise NotImplementedError("Cannot know total duration from ffmpeg reader. Use sequence to get sequence betwen start and stop duration.")
+            
 if __name__ == "__main__" :
     import matplotlib.pyplot as plt
 

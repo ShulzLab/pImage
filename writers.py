@@ -146,6 +146,11 @@ class AviWriter(DefaultWriter):
             warnings.warn("No data has been given, video was not created")
             return 
         self.file_handle.release()
+        
+class MP4Writer(DefaultWriter):
+    fourcc = VideoWriter_fourcc(*'MP4V')
+    pass
+
 
 class TiffWriter(DefaultWriter):
     try :

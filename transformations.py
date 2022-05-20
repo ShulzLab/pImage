@@ -20,20 +20,19 @@ Created on Thu Mar 10 21:58:07 2022
 
 try :
     from PIL import Image, ImageDraw, ImageFont
-except ImportError as e :
+except ImportError :
     pass
 import cv2
 import numpy as np
 import math
-import os,sys
 
-from readers import select_extension_reader
+from readers import _readers_factory
 
 available_transforms = {"rotate","crop","annotate","resize","brightness","contrast","gamma","clahe","clipLimit","tileGridSize"}
 
 def TransformingReader(path,**kwargs):
 
-    selected_reader_class = select_extension_reader(path)
+    selected_reader_class = _readers_factory(path,**kwargs)
 
     class TransformingPolymorphicReader(selected_reader_class):
            
@@ -70,9 +69,9 @@ def TransformingReader(path,**kwargs):
                     lab[:,:,0] = self.clahe.apply(lab[:,:,0])
                     frame = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
             if self.brightness_contrast :
-                frame = image_contrast_brightness(frame,self.contrast,self.brightness)
+                frame = contrast_brightness(frame,self.contrast,self.brightness)
             if self.gamma is not None :
-                frame = image_gamma(frame,self.gamma,self.inv_gamma)
+                frame = gamma(frame,self.gamma,self.inv_gamma)
             if self.annotate_params :
                 frame = annotate_image(frame, self.annotate_params["text"], **self.annotate_params["params"])
             
@@ -168,21 +167,48 @@ def make_crop_params(*args,**kwargs):
         values.append(_val)
     return values
 
+
+def binarize(image,threshold,boolean = True):
+    """
+    Binarize an image at a given threshold.
+
+    Parameters
+    ----------
+    image : numpy.ndarray
+        Input image.
+    threshold : int
+        Pixel value at which all pixels above are defined as white (255) and all pixels below are defined as black(0).
+    **kwargs : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    binimg : TYPE
+        DESCRIPTION.
+
+    """
+
+    _, binimg = cv2.threshold(image,threshold,255,cv2.THRESH_BINARY)
+
+    if boolean:
+        return binimg.astype(np.bool)
+    return binimg
+
 def crop(array,*args,**kwargs):
     values = make_crop_params(*args,**kwargs)
     return array[values[0]:array.shape[0]-values[1],values[2]:array.shape[1]-values[3]]
 
-def image_contrast_brightness(array,alpha,beta):
+def contrast_brightness(array,alpha,beta):
     #alpha = contrast, beta = brightness
     return (np.clip(( array.astype(np.int16) * alpha ) + beta, a_min = 0, a_max = 255)).astype(np.uint8)
 
-def image_gamma(array,gamma,inv= True):
-    return apply_lut(array, gamma_lut(gamma,inv))
+def gamma(array,gamma,inv= True):
+    return apply_lut(array, make_lut_gamma(gamma,inv))
 
-def image_curve(array,slope,shift):
-    return apply_lut(array, curve_lut(slope,shift))
+def curve(array,slope,shift):
+    return apply_lut(array, make_lut_curve(slope,shift))
 
-def image_clahe(array,clahe= None,clipLimit = 8, tileGridSize = (5,5) ):
+def clahe(array,clahe= None,clipLimit = 8, tileGridSize = (5,5) ):
     if clahe is None :
         clahe = cv2.createCLAHE(clipLimit = clipLimit, tileGridSize = tileGridSize)
     return clahe.apply(array)
@@ -190,13 +216,13 @@ def image_clahe(array,clahe= None,clipLimit = 8, tileGridSize = (5,5) ):
 def apply_lut(array, lut):
     return np.take(lut,array)
     
-def gamma_lut(gamma,inv_gamma = True):
+def make_lut_gamma(gamma,inv_gamma = True):
     if inv_gamma : 
         gamma = 1.0 / gamma
     table = np.array([((i / 255.0) ** gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
     return table
 
-def curve_lut(slope=1,shift=0):
+def make_lut_curve(slope=1,shift=0):
     return [constrain(to_uint(math.erf(i*slope))+shift) for i in np.linspace(-1,1,256)]
 
 def to_uint(value):#-1 - 1 to 0 - 255
@@ -213,11 +239,103 @@ def constrain(value, mini = 0 , maxi = 255):
     else :
         return maxi
     
+def grayscale(image,biases = [1/3,1/3,1/3]):
+    """
+    Calculate gray image value from RGB value. May include bias values to correct for luminance differences in layers.
 
+    Parameters
+    ----------
+    rgb : TYPE
+        DESCRIPTION.
+    biases : TYPE, optional
+        DESCRIPTION. The default is [1/3,1/3,1/3].
 
+    Returns
+    -------
+    gray : numpy.ndarray
+        Gray image (2D).
+
+    """
+    try :
+        gray = np.zeros_like(image[:,:,0])
+    except IndexError :
+        return image
+    for color_dim in range(3):
+        gray = gray + (image[:,:,color_dim] * biases[color_dim])
+    return gray
+
+def pad(image,value,mode = "constant",**kwargs):
+    """
+    Pad an image with black (0) borders of a given width (in pixels).
+    The padding is homogeneous on the 4 sides of the image.
+
+    Parameters
+    ----------
+    binimg : numpy.ndarra y(2D)
+        Input image.
+    value : int
+        Pad width (in pixels).
+    **kwargs : TYPE
+       - mode : "constant" default
+       -constant_value : value of pixel if mode is constant
+
+    Returns
+    -------
+    binimg : numpy.ndarray
+        Output image.
+
+    """
+    import numpy as np
+    return np.pad(image, ((value,value),(value,value)), mode, **kwargs )
+
+def null_image(shape):
+    """
+    Generate a black image of a given dimension with a white cross on the middle, to use as "no loaded image" user readout.
+
+    Parameters
+    ----------
+    shape : (tuple) with :
+        X : (int) Shape for first dimension on the generated array (X)
+        Y : (int) Shape for second dimension on the generated array (Y).
+
+    Returns
+    -------
+    img : numpy.ndarray
+        Blank image with white cross, of [X,Y] shape.
+
+    """
+    from skimage.draw import line_aa
+    X,Y = shape
+    img = np.zeros((X, Y), dtype=np.uint8)
+    rr, cc, val = line_aa(0, 0, X-1, Y-1)
+    img[rr, cc] = val * 255
+    rr, cc, val = line_aa(0, Y-1, X-1, 0)
+    img[rr, cc] = val * 255
+
+    return img
+
+def gaussian(frame,value):
+    """
+    Blur a 2D image (apply a gaussian 2D filter on it).
+
+    Parameters
+    ----------
+    frame : numpy.ndarray (2D)
+        Input image.
+    value : int
+        Width of the 2D gaussian curve that is used to look for adjacent pixels values during blurring.
+
+    Returns
+    -------
+    frame : numpy.ndarray (2D)
+        Output image (blurred).
+
+    """
+    from skimage import filters
+    frame = filters.gaussian(frame, sigma=(value, value), truncate = 6, preserve_range = True).astype('uint8')
+    return frame
 
 if __name__ == "__main__" :
-    import matplotlib.pyplot as plt
-
+    
     test  = TransformingReader("tes.avi",rotate = 1)
     

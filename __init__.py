@@ -8,3 +8,8 @@ from video import *
 from converters import *
 from transformations import *
 import mosaics
+
+try :
+    from PIL import Image as pillow
+except ImportError :
+    pass
