@@ -210,7 +210,7 @@ class FFmpegReader(DefaultReader):
     try : 
         import ffmpeg
     except : 
-        raise ImportError("FFMPEG cannot be imported sucessfully or is not installed")
+        ffmpeg = None
     #THis reader is based on video time  (based on framerate and ffmped seek)
     #It is usefull for long videos that are somewhat currupted in the sense that opencv reader
     #dont' get all  the frames with cv2.CAP_PROP_FRAME_COUNT and you wish to access a part of 
@@ -219,6 +219,8 @@ class FFmpegReader(DefaultReader):
     def __init__(self,path,**kwargs):
         
         super().__init__(path,**kwargs)
+        if self.ffmpeg is None :
+            raise ImportError("FFMPEG cannot be imported sucessfully or is not installed")
         self.pix_fmt = kwargs.get("pix_fmt",'gray')
     
     def get_framerate(self):
