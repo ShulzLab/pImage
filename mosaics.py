@@ -154,6 +154,20 @@ class array_video_color(memarray):
     
     
 class vignette_object():
+    """
+    Core component for VignettBuilder's flexibility 
+    It provides a common API for acessing frames or objects, 
+    regardless of the actual content class and type of the object
+    
+    The API is :
+        - shape : returns (x,y,time) color info is not specified, implicit, see get_frame for why
+        - get_frame : returns a frame. frame are ALWAYS returned in color mode, with last dimension = 3.
+        - set_static : works only for objects that contains arrays for now. 
+            Sets the fact that get_frame returns the same image whatever the index, for use as constant info in layouts 
+        - close : self explanatory. Usefull for memaps, 
+            althoug the use of memaps is strongly discouraged for now, until they get fixed both in term of ram consistency and speed
+        
+    """
     
     def __init__(self,_object,parent = None):
         if isinstance(_object,array_video_color):
@@ -225,25 +239,115 @@ def dummy_patch_processor(vignette_builder,patch):
     
 class VignetteBuilder():
         
-    def __init__(self,target_aspect_ratio = 16/9,max_size = 1000,**kwargs) :
+    def __init__(self,layout_style = "grid", **kwargs) :
+        """
+        All kwargs key values are the keys of the setters.
+        More info in each of them.
+        """
         self.v_objects = []
         self.time_offsets = []
         self.sampling_rate_multipliers = []
         self.post_transforms = []
-        self.target_aspect_ratio = target_aspect_ratio
-        self.set_max_size(max_size)
-        self.border = kwargs.get("border",0)
-        self.padding = kwargs.get("padding",0)
-        self.bg_color = kwargs.get("bg_color",0)
-        self.fit_to(kwargs.get("fit_to",0))
-        self.set_first_object(kwargs.get("first_object",0))
-        self.resize_algorithm = kwargs.get("resize_algorithm",cv2.INTER_AREA)
+        self.layout_args = [(),{}]
+        
+        if layout_style is not None :
+            self.set_layout(layout_style,**kwargs)
+        
+        self.set_max_size(**kwargs)
+        self.set_border(**kwargs)
+        self.set_padding(**kwargs)
+        self.set_bg_color(**kwargs)
+        
+        #Usefull only if gridlayout
+        self.set_target_aspect_ratio(**kwargs)
+        #Usefull only if snappylayout
+        self.set_first_object(**kwargs)
+        self.set_fit_to(**kwargs)
+        
+        self.set_resize_algorithm(**kwargs)
         self._layout_ready = False
         self._duration_ready = False
+        
+    ### PARAMETERS SETTERS
+                
+    def set_layout(self, layout_style, *args, **kwargs ):
+        """
+        layout_style : string
+            possible values :
+            - "grid"
+                in that case, accepts arguments :
+                    - columns 
+                    - lines
+                    To force the number of lines or columns. 
+                    Note that the given target_aspect_ratio will not be taken into account in that case
+                    - target_ar , the target aspect ratio, defaults to 16/9
+            - "snappy"
+                in that case, accepts arguments :
+                    - alignment 
+                        with values "hori", "horizontal", "vert" or "vertical"
+                        self explanatory
+                    - fit_to, index of object to fit to (dimension of the object fitted will depend of alignment)
+                    - first_object, index of first_object 
+                       (object labelled first = left or top, so the second = right or bottom in layout)
 
-    def set_max_size(self, size):
-        self.maxwidth = self.maxheight = size
+        Returns:
+            None.
+
+        """
+        self.layout = layout_style
+        self.layout_args = [args,kwargs]
         self._layout_ready = False
+        
+    def set_max_size(self, max_size = 1000,**extras):
+        self.maxwidth = self.maxheight = max_size
+        self._layout_ready = False
+        
+    def set_border(self,border = 0,**extras):
+        self.border = border
+        self._layout_ready = False
+        
+    def set_padding(self,padding = 0,**extras):
+        self.padding = padding
+        self._layout_ready = False
+        
+    def set_bg_color(self,bg_color=0,**extras):
+        self.bg_color = bg_color
+        
+    def set_resize_algorithm(self,resize_algorithm = cv2.INTER_AREA ,**extras):
+        self.resize_algorithm = resize_algorithm
+                
+    def set_first_object(self,first_object = 0,**extras):
+        #first_object = fist object index
+        self._f_o = first_object #first_object
+        self.layout_args[1].update({"first_object":first_object})
+        self._layout_ready = False 
+    
+    def set_fit_to(self,fit_to = 0,**extras):
+        #fit_to : index of object to fit the other one to. The dimension that will be fited depends on shappy layout's orientation
+        self._fit_to = fit_to
+        self.layout_args[1].update({"fit_to":fit_to})
+        self._layout_ready = False
+    
+    def set_target_aspect_ratio(self,target_ar = 16/9,**extras):
+        self.target_aspect_ratio = target_ar
+        self.layout_args[1].update({"target_ar":target_ar})
+        
+    ### DEPRECATED SETTERS 
+        
+    def fit_to(self,fit_to):
+        warnings.warn('fit_to is deprecated, use set_fit_to instead (setters naming convention)', DeprecationWarning, stacklevel=2)
+        self.set_fit_to(fit_to)
+        
+    def add_border(self,width):
+        warnings.warn('add_border is deprecated, use set_border instead (setters naming convention)', DeprecationWarning, stacklevel=2)
+        self.set_border(width)
+        
+    def add_padding(self,thickness):
+        warnings.warn('add_padding is deprecated, use set_padding instead (setters naming convention)', DeprecationWarning, stacklevel=2)
+        self.set_padding(thickness)
+
+
+    ### MAIN EXTERNAL METHODS
 
     def add_video(self,_object,**kwargs):
         """
@@ -313,13 +417,32 @@ class VignetteBuilder():
         self._duration_ready = False
         #self.v_objects[-1].object.flush()
         
-    def add_border(self,width):
-        self.border = width
-        self._layout_ready = False
+    def frame(self,index):
+        background = self.get_background()
+        if self.layout == "grid":
+            return self._grid_frame_getter(background,index)
+                
+        if self.layout == "snappy" :
+            return self._snappy_frame_getter(background,index)
+
+    def frames(self):
+        total_time = self.get_total_duration()
+        for time_index in range(total_time):
+            yield self.frame(time_index)
+
+    def close(self):
+        for array in self.v_objects:
+            try :
+                array.close()
+            except ValueError :
+                pass
         
-    def add_padding(self,thickness):
-        self.padding = thickness
-        self._layout_ready = False
+    def get_total_duration(self):
+        if self._duration_ready == False :
+            self._calculate_time_offsets()
+        return self._total_duration
+    
+    ### WORKING INTERNAL METHODS
         
     def get_layout_factory(self):
         if self.layout == "grid":
@@ -329,29 +452,48 @@ class VignetteBuilder():
         else :
             raise ValueError("Unknown layout style")
     
-    def set_layout(self, layout_style, *args ):
-        self.layout = layout_style
-        self.layout_args = args
-        self._layout_ready = False
 
-    def _apply_grid_layout(self,*args):
+
+    def _apply_grid_layout(self,columns=None,lines=None,target_ar = None,**extras):
         video_count = len(self.v_objects)
         ratios = []
-        for columns in range(1,video_count):
-            lines = math.ceil(video_count/columns)
-            aspectratio = (self.v_objects[0].shape[2] * columns ) / (self.v_objects[0].shape[1] * lines )
-            ratios.append( abs( aspectratio / self.target_aspect_ratio - 1 ) )
         
-        try :
-            self.columns = next(index for index , value in enumerate(ratios) if value == min(ratios)) + 1 
-        except StopIteration :
-            raise ValueError("Must have more than one video to make a grid layout. Add more videos")
-        self.lines = math.ceil(video_count/self.columns)
+        if target_ar is not None :
+            self.set_target_aspect_ratio(target_ar)
+        
+        if columns is not None or lines is not None :
+            if columns is not None and lines is None :
+                self.columns = columns
+                self.lines = math.ceil(video_count/self.columns)
+            elif lines is not None and columns is None :
+                self.lines = lines
+                self.columns = math.ceil(video_count/self.lines)
+            else :
+                self.columns = columns
+                self.lines = lines
+                if self.columns*self.lines < video_count:
+                    raise ValueError("Cannot set {self.columns} columns and {self.lines} lines for a {video_count} videos mosaic")
+        else :
+            for columns in range(1,video_count):
+                lines = math.ceil(video_count/columns)
+                aspectratio = (self.v_objects[0].shape[2] * columns ) / (self.v_objects[0].shape[1] * lines )
+                ratios.append( abs( aspectratio / self.target_aspect_ratio - 1 ) )
+            
+            try :
+                self.columns = next(index for index , value in enumerate(ratios) if value == min(ratios)) + 1 
+            except StopIteration :
+                raise ValueError("Must have more than one video to make a grid layout. Add more videos")
+            self.lines = math.ceil(video_count/self.columns)
        
         
-    def _apply_snappy_layout(self,alignment = "hori",*args):
+    def _apply_snappy_layout(self,alignment = "hori",first_object = None,fit_to = None,**extras):
         if len(self.v_objects) > 2:
             raise ValueError("Cannot snap more than two objects with one vignette builder in current developpement state. Simply nest builders to achieve the desired number of snapped images.")
+            
+        if first_object is not None :
+            self.set_first_object(first_object)
+        if fit_to is not None :
+            self.set_fit_to(fit_to)
             
         if alignment == "hori" or alignment == "horizontal" :
             self.lines = 1
@@ -360,15 +502,6 @@ class VignetteBuilder():
         if alignment == "vert" or alignment == "vertical" :
             self.lines = 2
             self.columns = 1
-                   
-            
-    def fit_to(self,index = 0):
-        self._fit_to = index
-        self._layout_ready = False
-        
-    def set_first_object(self,index = 0):
-        self._f_o = index #first_object
-        self._layout_ready = False 
         
         
     def get_frame_time_index(self,object_index,frame_index):
@@ -466,7 +599,7 @@ class VignetteBuilder():
         self.frames_yorigin = self.frames_yorigin + self.border
         
     def get_background_factory(self):
-        self.get_layout_factory()(*self.layout_args)
+        self.get_layout_factory()(*self.layout_args[0],**self.layout_args[1])
         
         if self.layout == "snappy" :
             return self._create_snappy_bg
@@ -486,21 +619,11 @@ class VignetteBuilder():
         videos_ends = [self.v_objects[i].shape[0] + self._positive_offsets[i] for i in range(len(self.v_objects))]
         self._total_duration = max(videos_ends)
     
-    def get_total_duration(self):
-        if self._duration_ready == False :
-            self._calculate_time_offsets()
-        return self._total_duration
-                
     def get_time_offset(self,object_index):
         if self._duration_ready == False :
             self._calculate_time_offsets()
         return -self._positive_offsets[object_index] 
         
-    def frames(self):
-        total_time = self.get_total_duration()
-        for time_index in range(total_time):
-            yield self.frame(time_index)
-            
     def _get_object_frame(self,object_index,frame_index):
         return self.v_objects[object_index].get_frame(self.get_frame_time_index(object_index,frame_index))
         
@@ -542,20 +665,7 @@ class VignetteBuilder():
             frame[x:ex,y:ey,:] = patch 
         return frame
         
-    def frame(self,index):
-        background = self.get_background()
-        if self.layout == "grid":
-            return self._grid_frame_getter(background,index)
-                
-        if self.layout == "snappy" :
-            return self._snappy_frame_getter(background,index)
 
-    def close(self):
-        for array in self.v_objects:
-            try :
-                array.close()
-            except ValueError :
-                pass
                 
 # possibnle optimisations : order of indexes in memaps , the select index (time) should be first maybe for faster access : answer, yes it does
 # pillow SIMD resize ? https://github.com/uploadcare/pillow-simd
@@ -585,8 +695,3 @@ if __name__ == "__main__" :
         vb.add_video( vid, max_time = 500, array_type = "2D_bw")
         #vb.add_video( pImage.AutoVideoReader(video).frames() )
     vb.set_layout("grid")
-
-#%% Plot
-
-    #plt.imshow(vb.frame(0))
-    #vb.close()

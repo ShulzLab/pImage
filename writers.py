@@ -25,6 +25,8 @@ from cv2 import VideoWriter, VideoWriter_fourcc
 def select_extension_writer(file_path):
     if os.path.splitext(file_path)[1] == ".avi" :
         return AviWriter
+    if os.path.splitext(file_path)[1] == ".mp4" :
+        return MP4Writer
     if os.path.splitext(file_path)[1] == ".tiff" :
         return TiffWriter
     if os.path.splitext(file_path)[1] == ".gif" :
@@ -105,7 +107,7 @@ class AviWriter(DefaultWriter):
         None.
 
         """
-
+        
         filename = kwargs.get("filename",None)
         root = kwargs.get("root",None)
         if root is not None :
@@ -114,7 +116,8 @@ class AviWriter(DefaultWriter):
             path = os.path.join(path,filename)
         if not os.path.isdir(os.path.split(path)[0]):
             os.makedirs(os.path.split(path)[0])
-
+            
+        
         self.path = path
         self.rgbconv = kwargs.get("rgbconv","RGB2BGR")
         # /!\ : if data from matplotlib exported arrays : color layers are not right
@@ -147,10 +150,12 @@ class AviWriter(DefaultWriter):
             return 
         self.file_handle.release()
         
-class MP4Writer(DefaultWriter):
-    fourcc = VideoWriter_fourcc(*'MP4V')
-    pass
-
+class MP4Writer(AviWriter):
+    
+    def __init__(self,path,**kwargs):
+        super().__init__(path,**kwargs)
+        self.codec = kwargs.get("codec", "H264")
+        self.fourcc = VideoWriter_fourcc(*self.codec)
 
 class TiffWriter(DefaultWriter):
     try :

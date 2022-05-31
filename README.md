@@ -1,5 +1,10 @@
 # pImage
  
+Massive warning : 
+Do not import when using code that needs tensorflow cuda and cudnn as it causes issues (for unknown reasons): namely : 
+`I tensorflow/stream_executor/cuda/cuda_driver.cc:739] failed to allocate 5.96G (6404864512 bytes) from device: CUDA_ERROR_OUT_OF_MEMORY: out of memory
+Could not load library cudnn_ops_infer64_8.dll. Error code 1455`
+ 
 Usage : 
 
 **Simple guide for video compression :**

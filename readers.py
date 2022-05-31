@@ -29,7 +29,7 @@ def _readers_factory(file_path,**kwargs):
     elif extension == ".mp4" :
         class MP4Reader(base):
             pass
-        return AviReader
+        return MP4Reader
     else :
         class UnknownReader(base):
             pass
