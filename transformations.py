@@ -28,7 +28,7 @@ import math
 
 from readers import _readers_factory
 
-available_transforms = {"rotate","crop","annotate","resize","brightness","contrast","gamma","clahe","clipLimit","tileGridSize"}
+available_transforms = {"rotate","crop","annotate","resize","brightness","contrast","gamma","clahe","clipLimit","tileGridSize","sharpen"}
 
 def TransformingReader(path,**kwargs):
 
@@ -46,7 +46,9 @@ def TransformingReader(path,**kwargs):
         gamma = kwargs.pop("gamma",None)
         inv_gamma = kwargs.pop("inv_gamma",True)
         clahe = kwargs.pop("clahe",False)
-        if clahe or "clipLimit" in kwargs.keys() or "tileGridSize" in kwargs.keys():
+        sharpen_value = kwargs.pop("sharpen",None)
+        #parameters for clahe auto set below if not supplied
+        if (clahe and isinstance(clahe,bool)) or "clipLimit" in kwargs.keys() or "tileGridSize" in kwargs.keys():
             clahe = cv2.createCLAHE(kwargs.pop("clipLimit",8),kwargs.pop("tileGridSize",(5,5)))
         if crop_params :
             try :
@@ -74,6 +76,8 @@ def TransformingReader(path,**kwargs):
                 frame = gamma(frame,self.gamma,self.inv_gamma)
             if self.annotate_params :
                 frame = annotate_image(frame, self.annotate_params["text"], **self.annotate_params["params"])
+            if self.sharpen_value is not None :
+                frame = sharpen_img(frame, self.sharpen_value)
             
             return frame
             
@@ -94,10 +98,31 @@ def TransformingReader(path,**kwargs):
                 
     return TransformingPolymorphicReader(path,**kwargs)
 
+def rescale_to_8bit( input_array, vmin = None, vmax = None,fullrange = False):
+    #try to find vmin vmax from input array dtype
+    if fullrange:
+        if np.issubdtype(input_array.dtype, np.integer) :
+            if vmin is None :
+                vmin = np.iinfo( input_array.dtype ).min 
+            if vmax is None :
+                vmax = np.iinfo( input_array.dtype ).max
+        else :
+            if vmin is None :
+                vmin = np.finfo( input_array.dtype ).min
+            if vmax is None :
+                vmax = np.finfo( input_array.dtype ).max
+    else :
+        if vmin is None :
+            vmin = input_array.min()
+        if vmax is None :
+            vmax = input_array.max()
+        
+    return np.interp(input_array.data, (vmin, vmax), (0, 255)).astype(np.uint8)
+    
+
 def array_gray_to_color( input_array , **kwargs ):
     """
     
-
     Args:
         input_array (TYPE): DESCRIPTION.
         **kwargs (TYPE): DESCRIPTION.
@@ -110,13 +135,7 @@ def array_gray_to_color( input_array , **kwargs ):
 
     """
     
-    if np.issubdtype(input_array.dtype, np.integer) :
-        vmin, vmax = np.iinfo( input_array.dtype ).min , np.iinfo( input_array.dtype ).max
-    else :
-        vmin, vmax = np.finfo( input_array.dtype ).min , np.finfo( input_array.dtype ).max
-    vmin, vmax = kwargs.get("vmin",vmin) , kwargs.get("vmax",vmax)
-
-    _temp_array = np.interp(input_array.data, (vmin, vmax), (0, 255)).astype(np.uint8)
+    _temp_array = rescale_to_8bit(input_array.data,**kwargs)
     if not kwargs.get("reverse",False) :
         _temp_array = np.invert(_temp_array)
     return cv2.applyColorMap(_temp_array, cv2.COLORMAP_JET)
@@ -224,6 +243,11 @@ def make_lut_gamma(gamma,inv_gamma = True):
 
 def make_lut_curve(slope=1,shift=0):
     return [constrain(to_uint(math.erf(i*slope))+shift) for i in np.linspace(-1,1,256)]
+
+def sharpen_img(img,amount = 0.7):
+    from scipy.ndimage.filters import median_filter
+    lap = cv2.Laplacian(median_filter(img, 1),cv2.CV_64F)
+    return img - amount*lap
 
 def to_uint(value):#-1 - 1 to 0 - 255
     return int((value + 1) * (255/2))
