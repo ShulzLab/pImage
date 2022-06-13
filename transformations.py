@@ -120,7 +120,7 @@ def rescale_to_8bit( input_array, vmin = None, vmax = None,fullrange = False):
     return np.interp(input_array.data, (vmin, vmax), (0, 255)).astype(np.uint8)
     
 
-def array_gray_to_color( input_array , **kwargs ):
+def array_gray_to_color( input_array, vmin = None, vmax = None, fullrange = False, cmap = cv2.COLORMAP_JET , reverse = False, mask_where = None, mask_color = 0 ):
     """
     
     Args:
@@ -135,15 +135,28 @@ def array_gray_to_color( input_array , **kwargs ):
 
     """
     
-    _temp_array = rescale_to_8bit(input_array.data,**kwargs)
-    if not kwargs.get("reverse",False) :
+    _temp_array = rescale_to_8bit(input_array.data,vmin,vmax,fullrange)
+    if not reverse :
         _temp_array = np.invert(_temp_array)
-    return cv2.applyColorMap(_temp_array, cv2.COLORMAP_JET)
+    
+    _temp_array = cv2.applyColorMap(_temp_array, cmap)
+    
+    if mask_where is not None :
+        #border_mask_3D = imarrays.mask_sequence(kwargs.get("mask"),deltaframes.shape[2])
+        #deltaframes[border_mask_3D[:,:,0] == 0] = kwargs.get("bg_color",0)
+        _temp_array[mask_where] = mask_color
+        
+    return _temp_array
 
-def sequence_gray_to_color(sequence, **kwargs):
+def sequence_gray_to_color(sequence, vmin = None, vmax = None, fullrange = False, cmap = cv2.COLORMAP_JET , reverse = False , mask_where = None, mask_color = 0 ):
     color_sequence = []
+    
     for i in range(sequence.shape[2]):
-        color_sequence.append(array_gray_to_color(sequence[:,:,i], **kwargs))
+        if mask_where is not None :
+            mask = mask_where[:,:,i]
+        else :
+            mask = None
+        color_sequence.append(array_gray_to_color(sequence[:,:,i], vmin,vmax,fullrange,cmap,reverse, mask, mask_color))
     return np.moveaxis(np.array(color_sequence),0,2)
 
 def annotate_image( input_array, text, **kwargs):

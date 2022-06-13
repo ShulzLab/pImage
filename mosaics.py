@@ -178,6 +178,10 @@ class vignette_object():
             self.type = "reader"
         elif isinstance(_object,VignetteBuilder):
             self.type = "builder"
+        elif isinstance(_object,VariableFrameProvider):
+            self.type = "provider"
+        else :
+            raise(f"vignette object type not understood :{_object.__class__.__name__}")
         self.static_mode = False
         self.object = _object
         self.parent = parent
@@ -196,6 +200,8 @@ class vignette_object():
             if not self.object._layout_ready:
                 self.object.get_background_factory()()
             return (self.object.get_total_duration(),self.object.background_height,self.object.background_width)
+        elif self.type == "provider" :
+            return self.object.get_shape()
         
     def set_static(self,static_mode):
         self.static_mode = static_mode
@@ -222,7 +228,9 @@ class vignette_object():
             if 0 > frame_id or frame_id > self.object.get_total_duration() :
                 return self.object.get_background() 
             return self.object.frame(frame_id)
-            
+        elif self.type == "provider" :
+            return self.object.get_frame(frame_id)
+        
     def close(self):
         if self.type == "memap" :
             self.object.close()
@@ -236,6 +244,20 @@ class vignette_object():
 
 def dummy_patch_processor(vignette_builder,patch):
     return patch
+
+class VariableFrameProvider():
+    def bound(self,function):
+        import types
+        setattr(self,"get_frame",types.MethodType(function,self))
+    
+    def __init__(self,**variables):
+        for key, value in variables.items():
+            setattr(self,key,value)
+    def get_shape(self):
+        try :
+            return self.get_frame(0).shape[0:2]
+        except AttributeError:
+            raise("No method to get frames has been bound to this instance. Be sure to call 'instance.bound(function)' on every of your instances. Function should take as input an index and return the frame accordingly")
     
 class VignetteBuilder():
         
