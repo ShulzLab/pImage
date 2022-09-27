@@ -95,6 +95,9 @@ class DefaultReader:
         if stop is None : 
             stop = self.frames_number   
             
+        self._check_frame_id(start)
+        self._check_frame_id(stop-1)
+            
         if stop-start > 100 : 
             bar = pyprind.ProgBar(stop-start)
             prog = True
@@ -106,15 +109,17 @@ class DefaultReader:
                 bar.update()
             yield self.frame(i)
         
-            
-    def frames(self):
-        yield from self._get_all()
-            
-    def frame(self,frame_id):
+    def _check_frame_id(self,frame_id):
         if frame_id < 0 :
             raise ValueError("Cannot get negative frame ids")
         if self.frames_number is not None and frame_id > self.frames_number-1:
             raise ValueError("Not enough frames in reader")
+        
+    def frames(self):
+        yield from self._get_all()
+            
+    def frame(self,frame_id):
+        self._check_frame_id(frame_id)
         return self._get_frame(frame_id)
     
     def __getitem__(self,index):
@@ -159,6 +164,8 @@ class OpenCVReader(DefaultReader):
         if isinstance(cv2, ImportError) :
             raise ImportError("OpenCV2 cannot be imported sucessfully or is not installed")
         super().__init__(path,**kwargs)
+        self._internal_index = 0
+        self._stored_frame = None
     
     def open(self):
         try : 
@@ -181,19 +188,33 @@ class OpenCVReader(DefaultReader):
         self.open()
         frameno = int(self.file_handle.get(cv2.CAP_PROP_FRAME_COUNT))
         return frameno if frameno > 0 else None
-    
+        
     def _get_frame(self, frame_id):
         self.open()
-        self.file_handle.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
+        if self._internal_index == frame_id and self._stored_frame is not None: #if we ask again for the same frame, just give it back
+            return self._stored_frame
+        elif self._internal_index + 1 == frame_id : #if we ask for next frame than before just use the fact that internal index in VideoCapture.read auto increases after a call
+            pass
+        else :  #if we ask for a specific frame set VideoCapture internal index to get the right frame 
+            self.file_handle.set(cv2.CAP_PROP_POS_FRAMES, frame_id) 
+        
         success , temp_frame = self.file_handle.read()
         if not success:
             raise IOError("out of the frames available for this file")
         if self.color :
-            return cv2.cvtColor(temp_frame, cv2.COLOR_BGR2RGB)
-        return temp_frame[:,:,0]
+            self._stored_frame = cv2.cvtColor(temp_frame, cv2.COLOR_BGR2RGB)
+        else :
+            self._stored_frame = temp_frame[:,:,0]
+            
+        self._internal_index = frame_id
+        return self._stored_frame.copy()
+        # return a copy to avoid the issues related to giving back a frame that could have beend modified externally without being aware of it
+ 
     
     def _get_all(self):
         self.open()
+        self._internal_index = -1
+        self._stored_frame = None
         self.file_handle.set(cv2.CAP_PROP_POS_FRAMES, 0)
         while True :
             success, temp_frame = self.file_handle.read()

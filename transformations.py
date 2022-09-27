@@ -88,7 +88,6 @@ def TransformingReader(path,**kwargs):
         def frame(self,frame_id):
             return self._transform_frame(super().frame(frame_id))
                     
-            
             # @property
             # def shape(self):
             #     _shape = super().shape
