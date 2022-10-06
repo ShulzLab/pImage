@@ -27,10 +27,12 @@ def select_extension_writer(file_path):
         return AviWriter
     if os.path.splitext(file_path)[1] == ".mp4" :
         return MP4Writer
+    if os.path.splitext(file_path)[1] == ".mkv" :
+        return MKVWriter
     if os.path.splitext(file_path)[1] == ".tiff" :
         return TiffWriter
     if os.path.splitext(file_path)[1] == ".gif" :
-        return GifFWriter
+        return GifWriter
     else :
         raise NotImplementedError("File extension/CODEC not supported yet")
 
@@ -71,7 +73,8 @@ class DefaultWriter:
     def write(self,array):
         self._write_frame(array)
 
-class AviWriter(DefaultWriter):
+class OpenCVWriter(DefaultWriter):
+
     def __init__(self,path,**kwargs):
         """
         Creates an object that contains all parameters to create a video,
@@ -132,8 +135,9 @@ class AviWriter(DefaultWriter):
         self.file_handle = None
         
     def _write_frame(self,array):
-        import cv2
+        from cv2 import cvtColor, COLOR_RGB2BGR, COLOR_HSV2BGR, COLOR_BGRA2BGR, COLOR_RGBA2BGR
         if self.file_handle is None :
+            
             self.size = np.shape(array)[1], np.shape(array)[0]
             self.file_handle = VideoWriter(self.path, self.fourcc, self.fps, self.size, True)#color is always True because...
 
@@ -141,7 +145,7 @@ class AviWriter(DefaultWriter):
         if len(frame.shape) < 3 :
             frame = np.repeat(frame[:,:,np.newaxis],3,axis = 2)#...I just duplicate 3 times gray data if it isn't
         elif self.rgbconv is not None :
-            frame = eval( f"cv2.cvtColor(frame, cv2.COLOR_{self.rgbconv})" )
+            frame = eval( f"cvtColor(frame, COLOR_{self.rgbconv})" )
         self.file_handle.write(frame)
 
     def close(self):
@@ -150,11 +154,32 @@ class AviWriter(DefaultWriter):
             return 
         self.file_handle.release()
         
-class MP4Writer(AviWriter):
+class AviWriter(OpenCVWriter):
+    """
+    Has the huge advantage of being able to terminate file almost propery if not closed.
+    Also has a low quality reduction. Results in quite big videos compared to the other codecs.
+    Reduction is still orgers of magnitude better than uncompressed data, as we usually record "static background" videos on our setups.
+    """
+    def __init__(self,path,**kwargs):
+        super().__init__(path,**kwargs)
+        self.codec = kwargs.get("codec", "MJPG")
+        self.fourcc = VideoWriter_fourcc(*self.codec)
+        
+class MP4Writer(OpenCVWriter):
     
     def __init__(self,path,**kwargs):
         super().__init__(path,**kwargs)
-        self.codec = kwargs.get("codec", "H264")
+        self.codec = kwargs.get("codec", "X264")
+        self.fourcc = VideoWriter_fourcc(*self.codec)
+
+class MKVWriter(OpenCVWriter):
+    """ 
+    writer based on the DIVX codec. From the selection of this lib, one of the most disk-space efficient way to store videos
+    But results in a oss of quality. Use for presentations with light videos and such. Avoid using for further data analysis.
+    """
+    def __init__(self,path,**kwargs):
+        super().__init__(path,**kwargs)
+        self.codec = kwargs.get("codec", "DIVX")
         self.fourcc = VideoWriter_fourcc(*self.codec)
 
 class TiffWriter(DefaultWriter):
@@ -182,7 +207,7 @@ class TiffWriter(DefaultWriter):
 
 
 
-class GifFWriter(DefaultWriter):
+class GifWriter(DefaultWriter):
     
     def __init__(self,path,**kwargs):
         self.path = path
