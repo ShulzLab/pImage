@@ -2,7 +2,7 @@
 
 
 import os
-import pyprind
+
 
 try :
     import cv2
@@ -38,7 +38,6 @@ def _readers_factory(file_path,**kwargs):
 
 class AutoVideoReader:
   #do not inherit from this class. It only returns other classes factories. 
-  #You should inherit from what it yields instead
   def __new__(cls,path,**kwargs):
       from transformations import TransformingReader, available_transforms
           
@@ -65,7 +64,7 @@ class DefaultReader:
         raise NotImplementedError
         #returns the frames number implementing any calculation needed
         
-    ############## Methods to override if relevant :  
+    ############## Methods to override if relevant :       
     def open(self):
         pass
     
@@ -99,8 +98,12 @@ class DefaultReader:
         self._check_frame_id(stop-1)
             
         if stop-start > 100 : 
-            bar = pyprind.ProgBar(stop-start)
-            prog = True
+            try : 
+                import pyprind
+                bar = pyprind.ProgBar(stop-start)
+                prog = True
+            except ImportError :
+                prog = False
         else :
             prog = False
         
@@ -113,6 +116,8 @@ class DefaultReader:
         if frame_id < 0 :
             raise ValueError("Cannot get negative frame ids")
         if self.frames_number is not None and frame_id > self.frames_number-1:
+            if os.path.isfile(self.path):
+                raise IOError(f"File supplied as input does not exist : {self.path}")
             raise ValueError("Not enough frames in reader")
         
     def frames(self):
@@ -120,7 +125,7 @@ class DefaultReader:
             
     def frame(self,frame_id):
         self._check_frame_id(frame_id)
-        return self._get_frame(frame_id)
+        return self._get_frame(frame_id)        
     
     def __getitem__(self,index):
         import numpy as np

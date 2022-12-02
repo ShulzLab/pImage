@@ -70,6 +70,30 @@ class DefaultWriter:
         #Exception handling here
         self.close()
         
+    def write_from(self,frame_yielder):
+        """
+        writes to disk all available frames from a yielder.
+        The yielder can be anything providing valid image data, (in a consistant manner from the first frame to the last the writer recieved)
+        It's intended to be used specifically with a reader (reader = pImage.AutoVideoReader(videopath)) and method reader.frames() (in this case it gives all the frames available)
+        or reader.sequence(start,stop) (in this case it gives frames between frame 'start' and frame 'stop' supplied as integers)
+        """
+        def activity_bar(l_index):#just a subclass to handle an activitybar made of small dots "moving", to see if the process crashes.
+            nonlocal msg
+            if l_index%10 == 0:
+               if len(msg)> 6:
+                   print('       ',end='\r')
+                   msg = ''
+               else :
+                   msg += '.'
+                   print(msg,end='\r')  
+                   
+        msg = ''  
+        print("Writing")
+        for index, frame in enumerate(frame_yielder) :
+            activity_bar(index)
+            self.write(frame)
+        print("Writing finished")
+        
     def write(self,array):
         self._write_frame(array)
 
@@ -175,7 +199,7 @@ class MP4Writer(OpenCVWriter):
 class MKVWriter(OpenCVWriter):
     """ 
     writer based on the DIVX codec. From the selection of this lib, one of the most disk-space efficient way to store videos
-    But results in a oss of quality. Use for presentations with light videos and such. Avoid using for further data analysis.
+    But results in a loss of quality. Use for presentations with light videos and such. Avoid using for further data analysis.
     """
     def __init__(self,path,**kwargs):
         super().__init__(path,**kwargs)

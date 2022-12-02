@@ -36,6 +36,8 @@ def TransformingReader(path,**kwargs):
 
     class TransformingPolymorphicReader(selected_reader_class):
            
+        callbacks = []
+        
         rotation_amount = kwargs.pop("rotate",False)
         annotate_params = kwargs.pop("annotate",False)
         crop_params = kwargs.pop("crop",False)
@@ -79,7 +81,16 @@ def TransformingReader(path,**kwargs):
             if self.sharpen_value is not None :
                 frame = sharpen_img(frame, self.sharpen_value)
             
+            for callback in self.callbacks :
+                frame = callback(frame,self)
+            
             return frame
+        
+        def add_callback(self,function):#you can add your own callbacks to a transformingreader 
+        #they shoudl be functions that take a frame as input and give back a frame as output
+        #the second argument they take is the reader itself, 
+        #so that you can implement your own arguments and values withing the function (attach them to the obj before)
+            self.callbacks.append(function)
             
         def frames(self):
             for item in self._get_all():
@@ -116,7 +127,10 @@ def rescale_to_8bit( input_array, vmin = None, vmax = None,fullrange = False):
         if vmax is None :
             vmax = input_array.max()
         
-    return np.interp(input_array.data, (vmin, vmax), (0, 255)).astype(np.uint8)
+    try :        
+        return np.interp(input_array.data, (vmin, vmax), (0, 255)).astype(np.uint8)
+    except AttributeError: #'memoryview' object has no attribute 'data'
+        return np.interp(input_array, (vmin, vmax), (0, 255)).astype(np.uint8)
     
 
 def array_gray_to_color( input_array, vmin = None, vmax = None, fullrange = False, cmap = cv2.COLORMAP_JET , reverse = False, mask_where = None, mask_color = 0 ):
