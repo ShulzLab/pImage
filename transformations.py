@@ -180,11 +180,11 @@ def annotate_image( input_array, text, **kwargs):
     
     if kwargs.get("shadow_size",False) or kwargs.get("shadow_color",False) :
         shadow_size = kwargs.get("shadow_size",5)
-        shadow_font = ImageFont.truetype(f"{kwargs.get('font','arial')}.ttf", fontsize + ( shadow_size*1))
+        shadow_font = ImageFont.truetype(f"{kwargs.get('font','arial.ttf')}", fontsize + ( shadow_size*1))
         for i, j in itertools.product((-shadow_size, 0, shadow_size), (-shadow_size, 0, shadow_size)):
             ImageDraw.Draw(_temp_image).text( (x+i, y+j) , text , fill=kwargs.get("shadow_color","white") ,font = shadow_font)
         
-    default_font = ImageFont.truetype(f"{kwargs.get('font','arial')}.ttf", fontsize)
+    default_font = ImageFont.truetype(f"{kwargs.get('font','arial.ttf')}", fontsize)
     ImageDraw.Draw(_temp_image).text( (x,y) , text , fill=kwargs.get('color','black') ,font = default_font)
 
     return np.array(_temp_image)
