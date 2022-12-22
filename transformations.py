@@ -148,7 +148,7 @@ def array_gray_to_color( input_array, vmin = None, vmax = None, fullrange = Fals
 
     """
     
-    _temp_array = rescale_to_8bit(input_array.data,vmin,vmax,fullrange)
+    _temp_array = rescale_to_8bit(input_array.__array__(),vmin,vmax,fullrange)
     if not reverse :
         _temp_array = np.invert(_temp_array)
     
