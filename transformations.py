@@ -110,28 +110,31 @@ def TransformingReader(path,**kwargs):
 
 def rescale_to_8bit( input_array, vmin = None, vmax = None,fullrange = False):
     #try to find vmin vmax from input array dtype
-    if fullrange:
-        if np.issubdtype(input_array.dtype, np.integer) :
-            if vmin is None :
-                vmin = np.iinfo( input_array.dtype ).min 
-            if vmax is None :
-                vmax = np.iinfo( input_array.dtype ).max
-        else :
-            if vmin is None :
-                vmin = np.finfo( input_array.dtype ).min
-            if vmax is None :
-                vmax = np.finfo( input_array.dtype ).max
-    else :
+
+    if vmin is None or vmax is None :
+        _vmin, _vmax = get_array_minmax(input_array,fullrange)
         if vmin is None :
-            vmin = input_array.min()
-        if vmax is None :
-            vmax = input_array.max()
+            vmin= _vmin
+        if vmax is None:
+            vmax = _vmax
         
     try :        
         return np.interp(input_array.data, (vmin, vmax), (0, 255)).astype(np.uint8)
     except AttributeError: #'memoryview' object has no attribute 'data'
         return np.interp(input_array, (vmin, vmax), (0, 255)).astype(np.uint8)
     
+def get_array_minmax(input_array,fullrange = False):
+    if fullrange:
+        if np.issubdtype(input_array.dtype, np.integer) :
+            vmin = np.iinfo( input_array.dtype ).min 
+            vmax = np.iinfo( input_array.dtype ).max
+        else :
+            vmin = np.finfo( input_array.dtype ).min
+            vmax = np.finfo( input_array.dtype ).max
+    else :
+        vmin = input_array.min()
+        vmax = input_array.max()
+    return vmin,vmax
 
 def array_gray_to_color( input_array, vmin = None, vmax = None, fullrange = False, cmap = cv2.COLORMAP_JET , reverse = False, mask_where = None, mask_color = 0 ):
     """
@@ -147,7 +150,7 @@ def array_gray_to_color( input_array, vmin = None, vmax = None, fullrange = Fals
         plt.imshow(pImage.array_gray_to_color(deltaframes[:,:,0],vmin = -0.005, vmax = 0.01,reverse = True))
 
     """
-    
+        
     _temp_array = rescale_to_8bit(input_array.__array__(),vmin,vmax,fullrange)
     if not reverse :
         _temp_array = np.invert(_temp_array)
@@ -161,16 +164,32 @@ def array_gray_to_color( input_array, vmin = None, vmax = None, fullrange = Fals
         
     return _temp_array
 
-def sequence_gray_to_color(sequence, vmin = None, vmax = None, fullrange = False, cmap = cv2.COLORMAP_JET , reverse = False , mask_where = None, mask_color = 0 ):
+def sequence_gray_to_color(sequence, vmin = None, vmax = None, fullrange = False, cmap = cv2.COLORMAP_JET , reverse = False , mask_where = None, mask_color = 0, time_dimension = 2 ):
+    
+    def dimension_iterator(i):
+        slicer = [slice(None)] * len(sequence.shape)
+        slicer[time_dimension] = i
+        return tuple(slicer)
+            
+    
     color_sequence = []
     
-    for i in range(sequence.shape[2]):
+    if vmin is None or vmax is None :
+        _vmin, _vmax = get_array_minmax(sequence,fullrange)
+        if vmin is None :
+            vmin= _vmin
+        if vmax is None:
+            vmax = _vmax
+    
+    for i in range(sequence.shape[time_dimension]):
+        slicer = dimension_iterator(i)
         if mask_where is not None :
-            mask = mask_where[:,:,i]
+            mask = mask_where[slicer]
         else :
             mask = None
-        color_sequence.append(array_gray_to_color(sequence[:,:,i], vmin,vmax,fullrange,cmap,reverse, mask, mask_color))
-    return np.moveaxis(np.array(color_sequence),0,2)
+        color_sequence.append(array_gray_to_color(sequence[slicer], vmin,vmax,fullrange,cmap,reverse, mask, mask_color))
+    
+    return np.array(color_sequence) if time_dimension == 0 else np.moveaxis(np.array(color_sequence),0,time_dimension)
 
 def annotate_image( input_array, text, **kwargs):
     import itertools

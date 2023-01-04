@@ -25,7 +25,7 @@ from cv2 import VideoWriter, VideoWriter_fourcc
 def select_extension_writer(file_path):
     if os.path.splitext(file_path)[1] == ".avi" :
         return AviWriter
-    if os.path.splitext(file_path)[1] == ".mp4" :
+    if os.path.splitext(file_path)[1] == ".mp4" or os.path.splitext(file_path)[1] == ".m4v" :
         return MP4Writer
     if os.path.splitext(file_path)[1] == ".mkv" :
         return MKVWriter
@@ -141,6 +141,7 @@ class OpenCVWriter(DefaultWriter):
             path = os.path.join(root,path)
         if filename is not None :
             path = os.path.join(path,filename)
+        path = os.path.abspath(path)
         if not os.path.isdir(os.path.split(path)[0]):
             os.makedirs(os.path.split(path)[0])
             
@@ -193,7 +194,7 @@ class MP4Writer(OpenCVWriter):
     
     def __init__(self,path,**kwargs):
         super().__init__(path,**kwargs)
-        self.codec = kwargs.get("codec", "X264")
+        self.codec = kwargs.get("codec", "mp4v")
         self.fourcc = VideoWriter_fourcc(*self.codec)
 
 class MKVWriter(OpenCVWriter):
