@@ -21,7 +21,6 @@ import os, warnings
 import numpy as np
 from cv2 import VideoWriter, VideoWriter_fourcc
 
-
 def select_extension_writer(file_path):
     if os.path.splitext(file_path)[1] == ".avi" :
         return AviWriter

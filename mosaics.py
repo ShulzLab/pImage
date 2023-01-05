@@ -328,9 +328,11 @@ class VignetteBuilder():
         self.border = border
         self._layout_ready = False
         
-    def set_padding(self,padding = 0,**extras):
+    def set_spacing(self,padding = 0,**extras):
         self.padding = padding
         self._layout_ready = False
+        
+    set_padding = set_spacing #alternative name for backward compatibility
         
     def set_bg_color(self,bg_color=0,**extras):
         self.bg_color = bg_color

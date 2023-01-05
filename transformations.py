@@ -170,7 +170,6 @@ def sequence_gray_to_color(sequence, vmin = None, vmax = None, fullrange = False
         slicer = [slice(None)] * len(sequence.shape)
         slicer[time_dimension] = i
         return tuple(slicer)
-            
     
     color_sequence = []
     
@@ -191,29 +190,73 @@ def sequence_gray_to_color(sequence, vmin = None, vmax = None, fullrange = False
     
     return np.array(color_sequence) if time_dimension == 0 else np.moveaxis(np.array(color_sequence),0,time_dimension)
 
-def annotate_image( input_array, text, **kwargs):
+def annotate_image( input_array, text, 
+                    x = 5,
+                    y = 5,
+                    fontsize = 100,
+                    font = 'arial.ttf',
+                    color = 'black',
+                    shadow_color = False,
+                    shadow_size = None):
+    """
+    Parameters
+    ----------
+    input_array : TYPE
+        DESCRIPTION.
+    text : TYPE
+        DESCRIPTION.
+    x : TYPE, optional
+        DESCRIPTION. The default is 5.
+    y : TYPE, optional
+        DESCRIPTION. The default is 5.
+    fontsize : TYPE, optional
+        DESCRIPTION. The default is 100.
+    font : TYPE, optional
+        DESCRIPTION. The default is 'arial.ttf'.
+        You can check the fonts avilable in your system by calling :
+            import matplotlib.font_manager
+            matplotlib.font_manager.findSystemFonts(fontpaths=None, fontext='ttf')
+    color : TYPE, optional
+        DESCRIPTION. The default is 'black'.
+    shadow_color : TYPE, optional
+        DESCRIPTION. The default is False.
+    shadow_size : TYPE, optional
+        DESCRIPTION. The default is None.
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    """
+    
     import itertools
     _temp_image = Image.fromarray(input_array)
-    x,y = kwargs.get('x',5), kwargs.get('y',5)
-    fontsize = kwargs.get('fontsize',100)
     
-    if kwargs.get("shadow_size",False) or kwargs.get("shadow_color",False) :
-        shadow_size = kwargs.get("shadow_size",5)
-        shadow_font = ImageFont.truetype(f"{kwargs.get('font','arial.ttf')}", fontsize + ( shadow_size*1))
+    if shadow_size is not None or shadow_color :
+        if shadow_size is None :
+            shadow_size = 5
+        shadow_font = ImageFont.truetype(font, fontsize + ( shadow_size*1))
         for i, j in itertools.product((-shadow_size, 0, shadow_size), (-shadow_size, 0, shadow_size)):
-            ImageDraw.Draw(_temp_image).text( (x+i, y+j) , text , fill=kwargs.get("shadow_color","white") ,font = shadow_font)
+            ImageDraw.Draw(_temp_image).text( (x+i, y+j) , text , fill=shadow_color ,font = shadow_font)
         
-    default_font = ImageFont.truetype(f"{kwargs.get('font','arial.ttf')}", fontsize)
-    ImageDraw.Draw(_temp_image).text( (x,y) , text , fill=kwargs.get('color','black') ,font = default_font)
+    default_font = ImageFont.truetype(font, fontsize)
+    ImageDraw.Draw(_temp_image).text( (x,y) , text , fill=color ,font = default_font)
 
     return np.array(_temp_image)
 
-def annotate_sequence( sequence, text, **kwargs ) :
+def annotate_sequence( sequence, text, time_dimension = 2, **kwargs ) :
+    
+    def dimension_iterator(i):
+        slicer = [slice(None)] * len(sequence.shape)
+        slicer[time_dimension] = i
+        return tuple(slicer)
+    
     anno_sequence = []
-    for i in range(sequence.shape[2]):
-        anno_sequence.append(annotate_image(sequence[:,:,i] , text, **kwargs ))
-    return np.moveaxis(np.array(anno_sequence),0,2)
-        
+    for i in range(sequence.shape[time_dimension]):
+        anno_sequence.append(annotate_image(sequence[dimension_iterator(i)] , text, **kwargs ))
+    
+    return np.array(anno_sequence) if time_dimension == 0 else np.moveaxis(np.array(anno_sequence),0,time_dimension)        
 
 def make_crop_params(*args,**kwargs):
     if len(args) == 4:
