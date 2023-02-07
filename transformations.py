@@ -115,7 +115,7 @@ def rescale_to_8bit( input_array, vmin = None, vmax = None,fullrange = False):
             vmin = input_array.min()
         if vmax is None :
             vmax = input_array.max()
-        
+
     return np.interp(input_array.data, (vmin, vmax), (0, 255)).astype(np.uint8)
     
 
@@ -133,8 +133,8 @@ def array_gray_to_color( input_array, vmin = None, vmax = None, fullrange = Fals
         plt.imshow(pImage.array_gray_to_color(deltaframes[:,:,0],vmin = -0.005, vmax = 0.01,reverse = True))
 
     """
-    
-    _temp_array = rescale_to_8bit(input_array.data,vmin,vmax,fullrange)
+    #_temp_array = rescale_to_8bit(input_array.data,vmin,vmax,fullrange)
+    _temp_array = rescale_to_8bit(input_array,vmin,vmax,fullrange)
     if not reverse :
         _temp_array = np.invert(_temp_array)
     
@@ -149,7 +149,6 @@ def array_gray_to_color( input_array, vmin = None, vmax = None, fullrange = Fals
 
 def sequence_gray_to_color(sequence, vmin = None, vmax = None, fullrange = False, cmap = cv2.COLORMAP_JET , reverse = False , mask_where = None, mask_color = 0 ):
     color_sequence = []
-    
     for i in range(sequence.shape[2]):
         if mask_where is not None :
             mask = mask_where[:,:,i]
