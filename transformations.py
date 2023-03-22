@@ -36,6 +36,8 @@ def TransformingReader(path,**kwargs):
 
     class TransformingPolymorphicReader(selected_reader_class):
            
+        callbacks = []
+        
         rotation_amount = kwargs.pop("rotate",False)
         annotate_params = kwargs.pop("annotate",False)
         crop_params = kwargs.pop("crop",False)
@@ -79,7 +81,16 @@ def TransformingReader(path,**kwargs):
             if self.sharpen_value is not None :
                 frame = sharpen_img(frame, self.sharpen_value)
             
+            for callback in self.callbacks :
+                frame = callback(frame,self)
+            
             return frame
+        
+        def add_callback(self,function):#you can add your own callbacks to a transformingreader 
+        #they shoudl be functions that take a frame as input and give back a frame as output
+        #the second argument they take is the reader itself, 
+        #so that you can implement your own arguments and values withing the function (attach them to the obj before)
+            self.callbacks.append(function)
             
         def frames(self):
             for item in self._get_all():
@@ -99,25 +110,31 @@ def TransformingReader(path,**kwargs):
 
 def rescale_to_8bit( input_array, vmin = None, vmax = None,fullrange = False):
     #try to find vmin vmax from input array dtype
+
+    if vmin is None or vmax is None :
+        _vmin, _vmax = get_array_minmax(input_array,fullrange)
+        if vmin is None :
+            vmin= _vmin
+        if vmax is None:
+            vmax = _vmax
+        
+    try :        
+        return np.interp(input_array.data, (vmin, vmax), (0, 255)).astype(np.uint8)
+    except AttributeError: #'memoryview' object has no attribute 'data'
+        return np.interp(input_array, (vmin, vmax), (0, 255)).astype(np.uint8)
+    
+def get_array_minmax(input_array,fullrange = False):
     if fullrange:
         if np.issubdtype(input_array.dtype, np.integer) :
-            if vmin is None :
-                vmin = np.iinfo( input_array.dtype ).min 
-            if vmax is None :
-                vmax = np.iinfo( input_array.dtype ).max
+            vmin = np.iinfo( input_array.dtype ).min 
+            vmax = np.iinfo( input_array.dtype ).max
         else :
-            if vmin is None :
-                vmin = np.finfo( input_array.dtype ).min
-            if vmax is None :
-                vmax = np.finfo( input_array.dtype ).max
+            vmin = np.finfo( input_array.dtype ).min
+            vmax = np.finfo( input_array.dtype ).max
     else :
-        if vmin is None :
-            vmin = input_array.min()
-        if vmax is None :
-            vmax = input_array.max()
-
-    return np.interp(input_array.data, (vmin, vmax), (0, 255)).astype(np.uint8)
-    
+        vmin = input_array.min()
+        vmax = input_array.max()
+    return vmin,vmax
 
 def array_gray_to_color( input_array, vmin = None, vmax = None, fullrange = False, cmap = cv2.COLORMAP_JET , reverse = False, mask_where = None, mask_color = 0 ):
     """
@@ -133,8 +150,8 @@ def array_gray_to_color( input_array, vmin = None, vmax = None, fullrange = Fals
         plt.imshow(pImage.array_gray_to_color(deltaframes[:,:,0],vmin = -0.005, vmax = 0.01,reverse = True))
 
     """
-    #_temp_array = rescale_to_8bit(input_array.data,vmin,vmax,fullrange)
-    _temp_array = rescale_to_8bit(input_array,vmin,vmax,fullrange)
+        
+    _temp_array = rescale_to_8bit(input_array.__array__(),vmin,vmax,fullrange)
     if not reverse :
         _temp_array = np.invert(_temp_array)
     
@@ -147,39 +164,99 @@ def array_gray_to_color( input_array, vmin = None, vmax = None, fullrange = Fals
         
     return _temp_array
 
-def sequence_gray_to_color(sequence, vmin = None, vmax = None, fullrange = False, cmap = cv2.COLORMAP_JET , reverse = False , mask_where = None, mask_color = 0 ):
+def sequence_gray_to_color(sequence, vmin = None, vmax = None, fullrange = False, cmap = cv2.COLORMAP_JET , reverse = False , mask_where = None, mask_color = 0, time_dimension = 2 ):
+    
+    def dimension_iterator(i):
+        slicer = [slice(None)] * len(sequence.shape)
+        slicer[time_dimension] = i
+        return tuple(slicer)
+    
     color_sequence = []
-    for i in range(sequence.shape[2]):
+    
+    if vmin is None or vmax is None :
+        _vmin, _vmax = get_array_minmax(sequence,fullrange)
+        if vmin is None :
+            vmin= _vmin
+        if vmax is None:
+            vmax = _vmax
+    
+    for i in range(sequence.shape[time_dimension]):
+        slicer = dimension_iterator(i)
         if mask_where is not None :
-            mask = mask_where[:,:,i]
+            mask = mask_where[slicer]
         else :
             mask = None
-        color_sequence.append(array_gray_to_color(sequence[:,:,i], vmin,vmax,fullrange,cmap,reverse, mask, mask_color))
-    return np.moveaxis(np.array(color_sequence),0,2)
+        color_sequence.append(array_gray_to_color(sequence[slicer], vmin,vmax,fullrange,cmap,reverse, mask, mask_color))
+    
+    return np.array(color_sequence) if time_dimension == 0 else np.moveaxis(np.array(color_sequence),0,time_dimension)
 
-def annotate_image( input_array, text, **kwargs):
+def annotate_image( input_array, text, 
+                    x = 5,
+                    y = 5,
+                    fontsize = 100,
+                    font = 'arial.ttf',
+                    color = 'black',
+                    shadow_color = False,
+                    shadow_size = None):
+    """
+    Parameters
+    ----------
+    input_array : TYPE
+        DESCRIPTION.
+    text : TYPE
+        DESCRIPTION.
+    x : TYPE, optional
+        DESCRIPTION. The default is 5.
+    y : TYPE, optional
+        DESCRIPTION. The default is 5.
+    fontsize : TYPE, optional
+        DESCRIPTION. The default is 100.
+    font : TYPE, optional
+        DESCRIPTION. The default is 'arial.ttf'.
+        You can check the fonts avilable in your system by calling :
+            import matplotlib.font_manager
+            matplotlib.font_manager.findSystemFonts(fontpaths=None, fontext='ttf')
+    color : TYPE, optional
+        DESCRIPTION. The default is 'black'.
+    shadow_color : TYPE, optional
+        DESCRIPTION. The default is False.
+    shadow_size : TYPE, optional
+        DESCRIPTION. The default is None.
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    """
+    
     import itertools
     _temp_image = Image.fromarray(input_array)
-    x,y = kwargs.get('x',5), kwargs.get('y',5)
-    fontsize = kwargs.get('fontsize',100)
     
-    if kwargs.get("shadow_size",False) or kwargs.get("shadow_color",False) :
-        shadow_size = kwargs.get("shadow_size",5)
-        shadow_font = ImageFont.truetype(f"{kwargs.get('font','arial')}.ttf", fontsize + ( shadow_size*1))
+    if shadow_size is not None or shadow_color :
+        if shadow_size is None :
+            shadow_size = 5
+        shadow_font = ImageFont.truetype(font, fontsize + ( shadow_size*1))
         for i, j in itertools.product((-shadow_size, 0, shadow_size), (-shadow_size, 0, shadow_size)):
-            ImageDraw.Draw(_temp_image).text( (x+i, y+j) , text , fill=kwargs.get("shadow_color","white") ,font = shadow_font)
+            ImageDraw.Draw(_temp_image).text( (x+i, y+j) , text , fill=shadow_color ,font = shadow_font)
         
-    default_font = ImageFont.truetype(f"{kwargs.get('font','arial')}.ttf", fontsize)
-    ImageDraw.Draw(_temp_image).text( (x,y) , text , fill=kwargs.get('color','black') ,font = default_font)
+    default_font = ImageFont.truetype(font, fontsize)
+    ImageDraw.Draw(_temp_image).text( (x,y) , text , fill=color ,font = default_font)
 
     return np.array(_temp_image)
 
-def annotate_sequence( sequence, text, **kwargs ) :
+def annotate_sequence( sequence, text, time_dimension = 2, **kwargs ) :
+    
+    def dimension_iterator(i):
+        slicer = [slice(None)] * len(sequence.shape)
+        slicer[time_dimension] = i
+        return tuple(slicer)
+    
     anno_sequence = []
-    for i in range(sequence.shape[2]):
-        anno_sequence.append(annotate_image(sequence[:,:,i] , text, **kwargs ))
-    return np.moveaxis(np.array(anno_sequence),0,2)
-        
+    for i in range(sequence.shape[time_dimension]):
+        anno_sequence.append(annotate_image(sequence[dimension_iterator(i)] , text, **kwargs ))
+    
+    return np.array(anno_sequence) if time_dimension == 0 else np.moveaxis(np.array(anno_sequence),0,time_dimension)        
 
 def make_crop_params(*args,**kwargs):
     if len(args) == 4:

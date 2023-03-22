@@ -27,7 +27,7 @@ class StandardConverter:
     def __init__(self,input_path,output_path, **kwargs):
 
         m = Manager()
-        self.read_queue = m.Queue()
+        self.read_queue = m.Queue(30)#max 30 frames in ram at the same time if reading is faster than writing (it is)
         #self.transformed_queue = m.Queue()
         self.message_queue = m.Queue()
 
@@ -40,6 +40,8 @@ class StandardConverter:
         self.stop_frame = kwargs.get("stop_frame",None)
 
     def start(self):
+        raise DeprecationWarning("Don't use StandardConverter anymore for converting videos. For now, it tends to produce memory leaks.\n Prefert the syntax : writer.copy_from(reader.frames()) or writer.copy_from(reader.sequence(start_frame,stop_frame))  ")
+        
         with Pool(processes=2) as pool:
 
             read_process = pool.apply_async(self.read, (AutoVideoReader,self.read_queue,self.message_queue,self.start_frame,self.stop_frame))

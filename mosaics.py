@@ -328,9 +328,11 @@ class VignetteBuilder():
         self.border = border
         self._layout_ready = False
         
-    def set_padding(self,padding = 0,**extras):
+    def set_spacing(self,padding = 0,**extras):
         self.padding = padding
         self._layout_ready = False
+        
+    set_padding = set_spacing #alternative name for backward compatibility
         
     def set_bg_color(self,bg_color=0,**extras):
         self.bg_color = bg_color
@@ -687,8 +689,15 @@ class VignetteBuilder():
             frame[x:ex,y:ey,:] = patch 
         return frame
         
+    
+def get_title_band(array,title, height = 50, bg_color = 0, **kwargs):
+    from transformations import annotate_image
+    title_band = np.ones(shape = (height,array.shape[1],3),dtype = array.dtype)# a band of width 50 of the same width as the Y axis of the array
+    title_band = annotate_image(title_band * bg_color, title , **kwargs)#fontsize=55, font = "DejaVuSans-Bold.ttf",shadow_size = 1)
+    return title_band
 
-                
+
+
 # possibnle optimisations : order of indexes in memaps , the select index (time) should be first maybe for faster access : answer, yes it does
 # pillow SIMD resize ? https://github.com/uploadcare/pillow-simd
 # and possibly, instead of resizing each image then writing in inside the background, maybe write each inside a full size background 
